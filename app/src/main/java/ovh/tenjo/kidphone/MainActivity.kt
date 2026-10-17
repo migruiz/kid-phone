@@ -24,17 +24,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import ovh.tenjo.kidphone.call.CallManager
 import ovh.tenjo.kidphone.data.Contact
 import ovh.tenjo.kidphone.data.Store
 import ovh.tenjo.kidphone.hub.HomeStatus
+import ovh.tenjo.kidphone.hub.KidRequest
 import ovh.tenjo.kidphone.hub.Hub
 import ovh.tenjo.kidphone.kiosk.Kiosk
 import ovh.tenjo.kidphone.kiosk.Loudness
 import ovh.tenjo.kidphone.ui.AllowedEditor
 import ovh.tenjo.kidphone.ui.AppsButton
 import ovh.tenjo.kidphone.ui.AppsScreen
+import ovh.tenjo.kidphone.ui.AskScreen
 import ovh.tenjo.kidphone.ui.ContactsEditor
 import ovh.tenjo.kidphone.ui.DialerSetupScreen
 import ovh.tenjo.kidphone.ui.HubScreen
@@ -48,6 +52,14 @@ import ovh.tenjo.kidphone.ui.ReadyScreen
 import ovh.tenjo.kidphone.ui.hubSummary
 
 private enum class Screen { Kid, Apps, Pin, Parent, Contacts, Allowed, ChangePin, Hub }
+
+/** The child asked to ring an "ask first" person; waiting for or showing the answer. */
+private data class Asking(
+    val contact: Contact,
+    val requestId: String? = null,
+    val request: KidRequest? = null,
+    val error: String? = null,
+)
 
 /**
  * The kid screen as the phone's home screen. Kid mode always runs here; it is switched on as the
@@ -72,6 +84,7 @@ open class MainActivity : ComponentActivity() {
     private var setupDone by mutableStateOf(false)
     private var setupContactsDone by mutableStateOf(false)
     private var screen by mutableStateOf(Screen.Kid)
+    private var asking by mutableStateOf<Asking?>(null)
 
     /** Set while unlocking, so the screen doesn't lock itself again on the way out. */
     private var leaving = false
@@ -168,6 +181,11 @@ open class MainActivity : ComponentActivity() {
     }
 
     private fun call(contact: Contact) {
+        // An "ask first" person needs a parent's OK, unless a call time is running.
+        if (store.locked && contact.askFirst && Hub.windowEnd(contact.number) == null) {
+            ask(contact)
+            return
+        }
         val message = when (CallManager.placeCall(this, contact)) {
             CallManager.PlaceResult.Ok -> null
             CallManager.PlaceResult.NoSim -> "No SIM card. This phone can't make calls."
@@ -176,6 +194,22 @@ open class MainActivity : ComponentActivity() {
         if (message != null) {
             simReady = CallManager.hasSim(this)
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun ask(contact: Contact) {
+        when {
+            !Hub.isSetUp -> Toast.makeText(this, "Asking isn't set up on this phone yet. Ask a parent.", Toast.LENGTH_LONG).show()
+            Hub.status.value != HomeStatus.AtHome ->
+                Toast.makeText(this, "Asking only works at home, on the home Wi-Fi.", Toast.LENGTH_LONG).show()
+            else -> {
+                asking = Asking(contact)
+                lifecycleScope.launch {
+                    runCatching { Hub.ask(contact.name, contact.number) }
+                        .onSuccess { r -> asking?.takeIf { it.contact == contact }?.let { asking = it.copy(requestId = r.id, request = r) } }
+                        .onFailure { e -> asking?.takeIf { it.contact == contact }?.let { asking = it.copy(error = e.message) } }
+                }
+            }
         }
     }
 
@@ -216,6 +250,8 @@ open class MainActivity : ComponentActivity() {
         val home by Hub.status.collectAsState()
         val allowedApps by Hub.allowed.collectAsState()
         val appsAvailable by Hub.appsAvailable.collectAsState()
+        val requests by Hub.requests.collectAsState()
+        val windows by Hub.windows.collectAsState()
         when {
             !owner -> NotOwnerScreen(packageName, onCheckAgain = { refresh(); maybeLock() })
 
@@ -241,7 +277,24 @@ open class MainActivity : ComponentActivity() {
             !setupDone -> ReadyScreen(onStart = { store.setupDone = true; refresh(); maybeLock() })
 
             else -> InactivityTimeout(active = screen != Screen.Kid, onTimeout = { screen = Screen.Kid }) {
-                when (screen) {
+                val ask = asking
+                when {
+                    screen == Screen.Kid && ask != null -> {
+                        val latest = requests.firstOrNull { it.id == ask.requestId }
+                        LaunchedEffect(latest) { if (latest != null && latest != ask.request) asking = ask.copy(request = latest) }
+                        AskScreen(
+                            contact = ask.contact,
+                            request = latest ?: ask.request,
+                            error = ask.error,
+                            onCall = { asking = null; call(ask.contact) },
+                            onStopAsking = {
+                                ask.requestId?.let { id -> lifecycleScope.launch { Hub.cancel(id) } }
+                                asking = null
+                            },
+                            onClose = { asking = null },
+                        )
+                    }
+                    else -> when (screen) {
                     Screen.Kid -> KidScreen(
                         contacts = contacts,
                         childName = childName,
@@ -257,6 +310,7 @@ open class MainActivity : ComponentActivity() {
                             else -> AppsButton.AwayFromHome
                         },
                         onApps = { screen = Screen.Apps },
+                        windows = windows,
                         onCall = ::call,
                         onParent = { screen = Screen.Pin },
                     )
@@ -313,6 +367,7 @@ open class MainActivity : ComponentActivity() {
                         onDone = { store.setPin(it); screen = Screen.Parent },
                         onCancel = { screen = Screen.Parent },
                     )
+                    }
                 }
             }
         }

@@ -47,6 +47,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -368,6 +370,25 @@ private fun ContactCard(index: Int, contact: Contact, onChange: (Contact) -> Uni
                     ) {
                         if (selected) Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = Color.White)
                     }
+                }
+            }
+            if (contact.isSet) {
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Ask a parent first", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+                        Text(
+                            "Each call needs a parent's OK in Kid Phone Parent, and only works at home. " +
+                                "This person can still ring him any time.",
+                            fontSize = 13.sp, color = Muted, lineHeight = 18.sp,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Switch(
+                        checked = contact.askFirst,
+                        onCheckedChange = { onChange(contact.copy(askFirst = it)) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFFF59E0B)),
+                    )
                 }
             }
         }

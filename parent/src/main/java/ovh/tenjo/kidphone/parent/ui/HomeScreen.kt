@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,6 +42,7 @@ import kotlinx.coroutines.launch
 import ovh.tenjo.kidphone.parent.Child
 import ovh.tenjo.kidphone.parent.Hub
 import ovh.tenjo.kidphone.parent.HubState
+import ovh.tenjo.kidphone.parent.Notifications
 import ovh.tenjo.kidphone.ui.CallGreen
 import ovh.tenjo.kidphone.ui.Danger
 import ovh.tenjo.kidphone.ui.Group
@@ -75,6 +77,9 @@ fun HomeScreen() {
 
     // Switches flipped here show at once, before the hub confirms.
     val pending = remember { mutableStateMapOf<String, Boolean>() }
+    // Requests being answered from this screen.
+    val answering = remember { mutableStateMapOf<String, Boolean>() }
+    val context = LocalContext.current
     var confirmReplace by remember { mutableStateOf(false) }
     var confirmUnpair by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<String?>(null) }
@@ -85,6 +90,23 @@ fun HomeScreen() {
         ChildCard(state?.child, error)
 
         state?.let { st ->
+            if (st.requests.isNotEmpty()) {
+                Spacer(Modifier.height(20.dp))
+                SectionLabel("Calls to ask about")
+                RequestsSection(childName, st.requests, answering.keys) { r, minutes ->
+                    answering[r.id] = true
+                    scope.launch {
+                        runCatching { Hub.answer(r.id, minutes) }
+                            .onSuccess { res ->
+                                Notifications.cancel(context, r.id)
+                                if (res.alreadyAnswered) info = "Already answered: ${Notifications.outcome(res.request.status, res.request.minutes, res.request.decidedBy)}."
+                                runCatching { Hub.state() }.onSuccess { state = it }
+                            }
+                            .onFailure { info = "Couldn't send the answer. Check the internet connection and try again." }
+                        answering.remove(r.id)
+                    }
+                }
+            }
             Spacer(Modifier.height(20.dp))
             SectionLabel("Apps")
             Text(

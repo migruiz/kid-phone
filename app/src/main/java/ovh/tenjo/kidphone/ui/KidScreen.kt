@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.PanTool
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.delay
 import ovh.tenjo.kidphone.data.Contact
+import ovh.tenjo.kidphone.data.PhoneNumbers
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -131,6 +133,8 @@ fun KidScreen(
     notice: String?,
     apps: AppsButton,
     onApps: () -> Unit,
+    /** Approved call times for "ask first" buttons: number → when it ends (wall clock). */
+    windows: Map<String, Long>,
     onCall: (Contact) -> Unit,
     onParent: () -> Unit,
 ) {
@@ -211,7 +215,13 @@ fun KidScreen(
                 NobodyYet(Modifier.weight(1f))
             } else {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    people.forEach { PersonRow(it, Modifier.weight(1f).heightIn(max = 180.dp).fillMaxWidth(), onCall) }
+                    people.forEach { person ->
+                        val windowEnd = if (person.askFirst) {
+                            windows.entries.firstOrNull { PhoneNumbers.same(it.key, person.number) }?.value
+                                ?.takeIf { it > System.currentTimeMillis() }
+                        } else null
+                        PersonRow(person, windowEnd, now, Modifier.weight(1f).heightIn(max = 180.dp).fillMaxWidth(), onCall)
+                    }
                 }
             }
         }
@@ -262,12 +272,23 @@ private fun BatteryBadge() {
     }
 }
 
+/** The amber of an "ask first" button that needs a parent's OK. */
+private val AskAmber = Color(0xFFF59E0B)
+
 /**
  * One person: picture, name and green call button on top, and underneath their phone number
  * across the whole width, as big as fits on one line, so the child gets to know it by heart.
+ * An "ask first" person has an amber hand button instead, until a parent says yes; then the button
+ * is green and shows the minutes left.
  */
 @Composable
-private fun PersonRow(contact: Contact, modifier: Modifier, onCall: (Contact) -> Unit) {
+private fun PersonRow(contact: Contact, windowEnd: Long?, now: LocalDateTime, modifier: Modifier, onCall: (Contact) -> Unit) {
+    val mustAsk = contact.askFirst && windowEnd == null
+    val buttonColor = if (mustAsk) AskAmber else CallGreen
+    // Recomputed each minute along with the clock.
+    val minutesLeft = remember(now, windowEnd) {
+        windowEnd?.let { ((it - System.currentTimeMillis()) / 60_000 + 1).coerceAtLeast(1) }
+    }
     val colors = tileColor(contact.color)
     val shape = RoundedCornerShape(30.dp)
     val showNumber = contact.name.isNotBlank()
@@ -297,15 +318,30 @@ private fun PersonRow(contact: Contact, modifier: Modifier, onCall: (Contact) ->
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                if (contact.askFirst) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (minutesLeft != null) "$minutesLeft min" else "Ask first",
+                        fontSize = 14.sp, fontWeight = FontWeight.ExtraBold,
+                        color = if (minutesLeft != null) Color(0xFFB7F7CF) else Color(0xFFFFE2A8),
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background((if (minutesLeft != null) CallGreen else AskAmber).copy(alpha = 0.22f))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
                 Box(
                     Modifier
                         .size(callSize)
-                        .shadow(18.dp, CircleShape, ambientColor = CallGreen, spotColor = CallGreen)
-                        .background(CallGreen, CircleShape),
+                        .shadow(18.dp, CircleShape, ambientColor = buttonColor, spotColor = buttonColor)
+                        .background(buttonColor, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Rounded.Call, contentDescription = null, tint = Color.White, modifier = Modifier.size(callSize * 0.45f))
+                    Icon(
+                        if (mustAsk) Icons.Rounded.PanTool else Icons.Rounded.Call,
+                        contentDescription = null, tint = Color.White, modifier = Modifier.size(callSize * 0.45f),
+                    )
                 }
             }
             if (showNumber) {

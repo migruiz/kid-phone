@@ -14,6 +14,7 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import ovh.tenjo.kidphone.R
 import ovh.tenjo.kidphone.data.Store
+import ovh.tenjo.kidphone.hub.Hub
 import ovh.tenjo.kidphone.kiosk.Loudness
 
 /**
@@ -40,16 +41,16 @@ class CallService : InCallService() {
                 return
             }
         }
-        // Kid mode: calls going out may only be to a call button (or an emergency number), whichever
-        // app started them. Kid Phone's own buttons always pass; another allowed app can't dial anyone.
+        // Kid mode: calls going out may only be to a call button (an "ask first" one only during a
+        // call time a parent gave) or an emergency number, whichever app started them.
         val outgoing = call.details.callDirection == Call.Details.DIRECTION_OUTGOING
         if (outgoing && Store.get(this).locked) {
             val number = CallManager.numberOf(call)
             val emergency = runCatching {
                 number != null && getSystemService(TelephonyManager::class.java).isEmergencyNumber(number)
             }.getOrDefault(false)
-            if (!emergency && !Store.get(this).mayCall(number)) {
-                Log.i(TAG, "Hung up a call to ${number ?: "an unknown number"}: not a call button")
+            if (!emergency && !Hub.mayCallNow(this, number)) {
+                Log.i(TAG, "Hung up a call to ${number ?: "an unknown number"}: not allowed now")
                 call.disconnect()
                 return
             }

@@ -25,6 +25,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
+import ovh.tenjo.kidphone.data.PhoneNumbers
 import ovh.tenjo.kidphone.data.Store
 import ovh.tenjo.kidphone.kiosk.Kiosk
 import ovh.tenjo.kidphone.shared.Http
@@ -40,6 +41,12 @@ enum class HomeStatus {
     /** The hub doesn't answer: not on the home Wi-Fi (or the Pi is off). */
     Away,
 }
+
+/**
+ * An "ask first" request as the child's phone sees it. [status] is pending, approved, rejected,
+ * expired or cancelled. [endsAt] (wall clock) is when an approved call time runs out.
+ */
+data class KidRequest(val id: String, val number: String, val status: String, val minutes: Int?, val endsAt: Long?)
 
 /**
  * The link to the home hub on the Raspberry Pi. The hub is only reachable on the home network, so
@@ -62,6 +69,7 @@ object Hub {
     private const val KEY_ALLOWED = "allowed"
     private const val KEY_APPS_SENT = "appsSent"
     private const val KEY_ICONS_SENT = "iconsSent"
+    private const val KEY_WINDOWS = "callWindows"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val wake = Channel<Unit>(Channel.CONFLATED)
@@ -82,6 +90,17 @@ object Hub {
      */
     private val _appsAvailable = MutableStateFlow(false)
     val appsAvailable: StateFlow<Boolean> = _appsAvailable
+
+    /** Recent "ask first" requests from the hub (pending, approved, just answered). */
+    private val _requests = MutableStateFlow<List<KidRequest>>(emptyList())
+    val requests: StateFlow<List<KidRequest>> = _requests
+
+    /**
+     * Approved call times: number → when it ends (wall clock). Kept on the phone, so a call time a
+     * parent gave keeps working even if the phone leaves the home Wi-Fi.
+     */
+    private val _windows = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val windows: StateFlow<Map<String, Long>> = _windows
 
     /** The hub's state version last seen, for the long-poll. -1 asks for an answer at once. */
     private var version = -1L
@@ -134,6 +153,61 @@ object Hub {
         Http.post(url("/kid/pairing-code"), token = token, timeoutMs = 8_000).getString("code")
     }
 
+    /** When the call time for this number ends, or null if it has none now. */
+    fun windowEnd(number: String?): Long? {
+        val now = System.currentTimeMillis()
+        return _windows.value.entries.firstOrNull { it.value > now && PhoneNumbers.same(it.key, number) }?.value
+    }
+
+    /**
+     * Whether the child may ring this number in kid mode: a call button, and for an "ask first"
+     * button only during a call time a parent gave. Other apps could try to dial anyone; those
+     * calls are hung up (see CallService).
+     */
+    fun mayCallNow(context: Context, number: String?): Boolean {
+        val button = Store.get(context).button(number) ?: return false
+        return !button.askFirst || windowEnd(number) != null
+    }
+
+    /** Asks the parents whether the child may ring [number]. Throws with a readable message. */
+    suspend fun ask(contactName: String, number: String): KidRequest = withContext(Dispatchers.IO) {
+        val answer = try {
+            Http.post(url("/kid/requests"), JSONObject().put("contactName", contactName).put("number", number), token, timeoutMs = 8_000)
+        } catch (e: java.io.IOException) {
+            throw IllegalStateException("Couldn't ask. Asking only works at home, on the home Wi-Fi.")
+        }
+        val request = parseRequest(answer, System.currentTimeMillis())
+        merge(listOf(request))
+        wake.trySend(Unit)
+        request
+    }
+
+    /** Stops waiting for an answer. */
+    suspend fun cancel(requestId: String) = withContext(Dispatchers.IO) {
+        runCatching { Http.post(url("/kid/requests/$requestId/cancel"), token = token, timeoutMs = 8_000) }
+        Unit
+    }
+
+    private fun parseRequest(o: JSONObject, now: Long) = KidRequest(
+        id = o.getString("id"),
+        number = o.optString("number"),
+        status = o.optString("status"),
+        minutes = if (o.has("minutes") && !o.isNull("minutes")) o.getInt("minutes") else null,
+        endsAt = if (o.has("remainingSeconds") && !o.isNull("remainingSeconds")) now + o.getLong("remainingSeconds") * 1000 else null,
+    )
+
+    /** Takes in requests from the hub: updates the list and the call times. */
+    private fun merge(fresh: List<KidRequest>, replaceAll: Boolean = false) {
+        _requests.value = if (replaceAll) fresh else (fresh + _requests.value.filter { old -> fresh.none { it.id == old.id } })
+        val now = System.currentTimeMillis()
+        val windows = _windows.value.filterValues { it > now }.toMutableMap()
+        fresh.filter { it.status == "approved" && it.endsAt != null }.forEach { windows[it.number] = it.endsAt!! }
+        if (windows != _windows.value) {
+            _windows.value = windows
+            prefs.edit().putString(KEY_WINDOWS, JSONObject(windows as Map<*, *>).toString()).apply()
+        }
+    }
+
     /** Something changed on the phone (an app installed or removed): tell the hub soon. */
     fun poke() {
         wake.trySend(Unit)
@@ -144,6 +218,10 @@ object Hub {
         if (::app.isInitialized) return
         app = context.applicationContext
         _allowed.value = prefs.getStringSet(KEY_ALLOWED, emptySet()).orEmpty().toSet()
+        _windows.value = runCatching {
+            val o = JSONObject(prefs.getString(KEY_WINDOWS, null) ?: "{}")
+            o.keys().asSequence().associateWith { o.getLong(it) }.filterValues { it > System.currentTimeMillis() }
+        }.getOrDefault(emptyMap())
         _status.value = if (isSetUp) HomeStatus.Checking else HomeStatus.NotSetUp
         app.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -212,6 +290,9 @@ object Hub {
             _allowed.value = allowed
             prefs.edit().putStringSet(KEY_ALLOWED, allowed).apply()
         }
+        val now = System.currentTimeMillis()
+        val requests = json.optJSONArray("requests")
+        merge((0 until (requests?.length() ?: 0)).map { parseRequest(requests!!.getJSONObject(it), now) }, replaceAll = true)
         true
     } catch (e: HttpError) {
         if (e.status == 401) {

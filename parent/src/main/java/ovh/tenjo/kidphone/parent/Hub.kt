@@ -32,6 +32,9 @@ data class CallRequest(
 
 data class Parent(val name: String, val me: Boolean)
 
+/** The hub's reply to an answer: the request as it now stands, and whether the other parent was first. */
+data class AnswerResult(val request: CallRequest, val alreadyAnswered: Boolean)
+
 data class HubState(
     val child: Child,
     val apps: List<KidApp>,
@@ -104,10 +107,11 @@ object Hub {
         call { Http.put("$BASE/parent/apps/$packageName", JSONObject().put("allowed", allowed), token) }
     }
 
-    /** Answers an "ask first" request: 0 minutes rejects it. Returns false if the other parent was first. */
-    suspend fun answer(requestId: String, minutes: Int): Boolean =
-        call { Http.post("$BASE/parent/requests/$requestId/answer", JSONObject().put("minutes", minutes), token) }
-            .let { !it.optBoolean("alreadyAnswered") }
+    /** Answers an "ask first" request: 0 minutes says no; otherwise 10, 30 or 60. */
+    suspend fun answer(requestId: String, minutes: Int): AnswerResult {
+        val json = call { Http.post("$BASE/parent/requests/$requestId/answer", JSONObject().put("minutes", minutes), token) }
+        return AnswerResult(parseRequest(json.getJSONObject("request"), System.currentTimeMillis()), json.optBoolean("alreadyAnswered"))
+    }
 
     suspend fun updateFcm(fcmToken: String) {
         if (token == null) return
@@ -157,21 +161,21 @@ object Hub {
         val apps = json.optJSONArray("apps").objects().map {
             KidApp(it.getString("package"), it.optString("label"), it.optBoolean("allowed"), it.optBoolean("installed", true), it.optBoolean("hasIcon"))
         }
-        val requests = json.optJSONArray("requests").objects().map {
-            CallRequest(
-                id = it.getString("id"),
-                contactName = it.optString("contactName"),
-                number = it.optString("number"),
-                status = it.optString("status"),
-                decidedBy = it.optString("decidedBy").ifBlank { null },
-                minutes = if (it.has("minutes") && !it.isNull("minutes")) it.getInt("minutes") else null,
-                remainingSeconds = if (it.has("remainingSeconds") && !it.isNull("remainingSeconds")) it.getLong("remainingSeconds") else null,
-                agoMs = (now - it.optLong("createdAt", now)).coerceAtLeast(0),
-            )
-        }
+        val requests = json.optJSONArray("requests").objects().map { parseRequest(it, now) }
         val parents = json.optJSONArray("parents").objects().map { Parent(it.optString("name"), it.optBoolean("me")) }
         return HubState(child, apps, requests, parents)
     }
+
+    private fun parseRequest(it: JSONObject, now: Long) = CallRequest(
+        id = it.getString("id"),
+        contactName = it.optString("contactName"),
+        number = it.optString("number"),
+        status = it.optString("status"),
+        decidedBy = if (it.isNull("decidedBy")) null else it.optString("decidedBy").ifBlank { null },
+        minutes = if (it.has("minutes") && !it.isNull("minutes")) it.getInt("minutes") else null,
+        remainingSeconds = if (it.has("remainingSeconds") && !it.isNull("remainingSeconds")) it.getLong("remainingSeconds") else null,
+        agoMs = (now - it.optLong("createdAt", now)).coerceAtLeast(0),
+    )
 
     private fun JSONArray?.objects(): List<JSONObject> =
         if (this == null) emptyList() else (0 until length()).map { getJSONObject(it) }

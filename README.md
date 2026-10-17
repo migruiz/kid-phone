@@ -37,8 +37,18 @@ An Android app that turns a phone into a child's phone.
   open on the home Wi-Fi: about a minute after the phone leaves it, an open app closes. An app
   switched off while open closes within seconds. Settings, the Play Store and the phone's own Phone
   app are never offered.
+- **"Ask first" call buttons.** A call button can be set to *Ask a parent first* (parent menu → Call
+  buttons). It shows an amber hand and "Ask first". Tapping it asks the parents: their phones get an
+  alert, "Alejandro wants to ring Pablo", with **No / 10 min / 30 min** (Android shows at most three
+  buttons; tapping the alert opens the app, which also offers **1 hour**). The first answer counts
+  and the other parent's alert changes to say who answered. The child's screen shows the answer at
+  once; on yes the button turns green with the minutes left, and he can ring as often as he likes
+  until the time runs out. A call already going when it runs out carries on. Nobody answering in 5
+  minutes counts as no answer. Asking only works on the home Wi-Fi; a call time already given keeps
+  working away from home. That person can still ring the child any time.
 - **Calls going out only to the call buttons.** In kid mode any outgoing call that isn't to a call
-  button (or an emergency number) is hung up at once, whichever app started it.
+  button (an "ask first" one only during a call time a parent gave) or an emergency number is hung
+  up at once, whichever app started it.
 - **Updates itself.** Both apps install new versions from this repository's GitHub releases. Kid
   Phone does it silently, only while the screen is off and no call is going on.
 

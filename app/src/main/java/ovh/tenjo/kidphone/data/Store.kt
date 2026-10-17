@@ -15,13 +15,15 @@ import kotlin.math.min
 /**
  * One of the four big call buttons. A button with no number is hidden. [emoji] is the picture on
  * the button; when empty the first letter of the name is shown. [color] is an index into the
- * button colours, or -1 for someone who has no button.
+ * button colours, or -1 for someone who has no button. With [askFirst], each call needs a parent's
+ * OK in Kid Phone Parent (they can still ring the child any time).
  */
 data class Contact(
     val name: String = "",
     val number: String = "",
     val color: Int = 0,
     val emoji: String = "",
+    val askFirst: Boolean = false,
 ) {
     val isSet: Boolean get() = PhoneNumbers.digits(number).isNotEmpty()
 }
@@ -82,7 +84,7 @@ class Store private constructor(context: Context) {
         padded.forEach {
             json.put(
                 JSONObject().put("name", it.name).put("number", it.number)
-                    .put("color", it.color).put("emoji", it.emoji)
+                    .put("color", it.color).put("emoji", it.emoji).put("askFirst", it.askFirst)
             )
         }
         prefs.edit().putString(KEY_CONTACTS, json.toString()).apply()
@@ -102,12 +104,9 @@ class Store private constructor(context: Context) {
         return allowedNumbers().any { PhoneNumbers.same(it, number) }
     }
 
-    /**
-     * Whether the child may ring this number while the phone is locked: only the call buttons.
-     * Other apps the parents allow could try to dial anyone; those calls are hung up.
-     */
-    fun mayCall(number: String?): Boolean =
-        _contacts.value.any { it.isSet && PhoneNumbers.same(it.number, number) }
+    /** The call button for this number, if there is one. */
+    fun button(number: String?): Contact? =
+        _contacts.value.firstOrNull { it.isSet && PhoneNumbers.same(it.number, number) }
 
     /** Who a number belongs to: their call button, or an allowed caller (no colour or picture). */
     fun lookup(number: String?): Contact? {
@@ -172,7 +171,10 @@ class Store private constructor(context: Context) {
             List(SLOTS) { i ->
                 val o = json.optJSONObject(i)
                 if (o == null) Contact(color = i)
-                else Contact(o.optString("name"), o.optString("number"), o.optInt("color", i), o.optString("emoji"))
+                else Contact(
+                    o.optString("name"), o.optString("number"), o.optInt("color", i), o.optString("emoji"),
+                    o.optBoolean("askFirst"),
+                )
             }
         }.getOrDefault(DEFAULT_CONTACTS)
     }
