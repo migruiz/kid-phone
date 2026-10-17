@@ -1,5 +1,6 @@
 package ovh.tenjo.kidphone.parent.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.AlertDialog
@@ -26,6 +28,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,8 +88,36 @@ fun HomeScreen() {
     var confirmUnpair by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<String?>(null) }
     val childName = state?.child?.name?.ifBlank { null } ?: Hub.childName.ifBlank { "Your child" }
+    // The apps list is its own screen, opened from the "Apps" row.
+    var showApps by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = showApps) { showApps = false }
 
-    ParentPage {
+    if (showApps) {
+        ParentPage {
+            ScreenHeader(
+                "Apps", onBack = { showApps = false },
+                subtitle = "Apps switched on here appear when $childName taps Apps. They only open on the home Wi-Fi.",
+            )
+            val st = state
+            if (st == null) {
+                Text(error ?: "Loading…", color = Muted)
+            } else {
+                AppsGroup(
+                    apps = st.apps.map { a -> pending[a.packageName]?.let { a.copy(allowed = it) } ?: a },
+                    onToggle = { app, on ->
+                        pending[app.packageName] = on
+                        scope.launch {
+                            runCatching { Hub.setAllowed(app.packageName, on) }
+                                .onSuccess { runCatching { Hub.state() }.onSuccess { state = it } }
+                                .onFailure { info = "Couldn't change ${app.label}. Check the internet connection and try again." }
+                            pending.remove(app.packageName)
+                        }
+                    },
+                )
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    } else ParentPage {
         ScreenHeader("$childName's phone", onBack = null)
         ChildCard(state?.child, error)
 
@@ -110,22 +141,19 @@ fun HomeScreen() {
             }
             Spacer(Modifier.height(20.dp))
             SectionLabel("Apps")
-            Text(
-                "Apps switched on here appear when $childName taps Apps. They only open on the home Wi-Fi.",
-                color = Muted, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
-            )
-            AppsGroup(
-                apps = st.apps.map { a -> pending[a.packageName]?.let { a.copy(allowed = it) } ?: a },
-                onToggle = { app, on ->
-                    pending[app.packageName] = on
-                    scope.launch {
-                        runCatching { Hub.setAllowed(app.packageName, on) }
-                            .onSuccess { runCatching { Hub.state() }.onSuccess { state = it } }
-                            .onFailure { info = "Couldn't change ${app.label}. Check the internet connection and try again." }
-                        pending.remove(app.packageName)
-                    }
-                },
-            )
+            Group {
+                val on = st.apps.count { it.allowed && it.installed }
+                val installed = st.apps.count { it.installed }
+                SettingsRow(
+                    Icons.Rounded.Apps, Color(0xFF0A9488), "Apps $childName can open",
+                    when {
+                        installed == 0 -> "None on the phone yet"
+                        on == 0 -> "None switched on, of $installed"
+                        else -> "$on switched on, of $installed"
+                    },
+                    onClick = { showApps = true },
+                )
+            }
         }
 
         Spacer(Modifier.height(20.dp))
