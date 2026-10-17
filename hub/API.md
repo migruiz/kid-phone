@@ -12,7 +12,7 @@ child's phone) and Kid Phone Parent (the parents' phones):
 | Port | Who | How they reach it |
 |------|-----|-------------------|
 | 8774 | the child's phone (`/kid/...`) | home Wi-Fi only: `http://192.168.0.11:8774` |
-| 8775 | the parents' phones (`/parent/...`) | anywhere: `https://kidphone.tenjotech.com` (Cloudflare tunnel → Pi:8775) |
+| 8775 | the parents' phones (`/parent/...`) | anywhere: `https://kidphone.tenjo.ovh` (Cloudflare tunnel → Pi:8775) |
 
 Each port serves only its own routes (anything else is 404). Kid routes also refuse any request
 that carries a Cloudflare header (`cf-ray`, `cf-connecting-ip` or any other `cf-*` header, or

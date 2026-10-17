@@ -45,7 +45,7 @@ An Android app that turns a phone into a child's phone.
 
 The child's phone reaches the hub only on the home network (`http://192.168.0.11:8774`), so being
 able to reach it is how Kid Phone knows it is at home. The parents' phones use
-`https://kidphone.tenjotech.com`, which the Pi's Cloudflare tunnel forwards to the hub's parent port
+`https://kidphone.tenjo.ovh`, which the Pi's Cloudflare tunnel forwards to the hub's parent port
 (8775). Alerts to the parents' phones go through Firebase Cloud Messaging (Google project
 `kidphone-tenjo`).
 

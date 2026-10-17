@@ -16,7 +16,7 @@ android {
         targetSdk = 36
         versionCode = rootProject.extra["appVersionCode"] as Int
         versionName = rootProject.extra["appVersionName"] as String
-        buildConfigField("String", "HUB_URL", "\"https://kidphone.tenjotech.com\"")
+        buildConfigField("String", "HUB_URL", "\"https://kidphone.tenjo.ovh\"")
         manifestPlaceholders["cleartext"] = "false"
     }
 

@@ -8,7 +8,7 @@ alerts the parents' phones through Firebase Cloud Messaging. The full contract i
 
 - Port **8774** is for the child's phone and only answers on the home network.
 - Port **8775** is for the parents and is reachable from the internet through the Cloudflare tunnel
-  at `https://kidphone.tenjotech.com`.
+  at `https://kidphone.tenjo.ovh`.
 
 It has no npm dependencies: plain Node 24 (`node:http`, `node:crypto`, `node:fs`).
 
@@ -79,7 +79,7 @@ In PowerShell: `$env:DATA_DIR='./tmp'; node src/server.js`. Then try
 4. **Portainer:** *Stacks → Add stack*, paste [docker-compose.yml](docker-compose.yml), and deploy.
    To update later, push a new image and use *Update the stack* with *Re-pull image*.
 
-5. **Cloudflare tunnel:** add the public hostname `kidphone.tenjotech.com` with the service
+5. **Cloudflare tunnel:** add the public hostname `kidphone.tenjo.ovh` with the service
    `http://192.168.0.11:8775`. Never add a hostname for port 8774. Don't forward either port on the
    router.
 

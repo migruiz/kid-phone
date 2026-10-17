@@ -44,7 +44,7 @@ data class HubState(
  * This phone is "paired" once it holds a token from the hub.
  */
 object Hub {
-    /** https://kidphone.tenjotech.com (a debug build can point elsewhere, see build.gradle.kts). */
+    /** https://kidphone.tenjo.ovh (a debug build can point elsewhere, see build.gradle.kts). */
     const val BASE = BuildConfig.HUB_URL
 
     private const val PREFS = "pairing"
