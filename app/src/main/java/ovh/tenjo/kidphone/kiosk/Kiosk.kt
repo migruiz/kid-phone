@@ -37,8 +37,14 @@ object Kiosk {
         UserManager.DISALLOW_SAFE_BOOT,
         UserManager.DISALLOW_FACTORY_RESET,
         UserManager.DISALLOW_ADD_USER,
-        UserManager.DISALLOW_ADJUST_VOLUME, // volume buttons do nothing; ring and calls stay at 100%
     )
+
+    /**
+     * Restrictions earlier versions set and that must now be off. DISALLOW_ADJUST_VOLUME blocks
+     * the volume buttons but also mutes all sound, so the ringtone was silent. The volume buttons
+     * are now blocked by the app instead (see [Loudness.watch]).
+     */
+    private val OBSOLETE_RESTRICTIONS = listOf(UserManager.DISALLOW_ADJUST_VOLUME)
 
     private val SELF_GRANTED = buildList {
         add(Manifest.permission.CALL_PHONE)
@@ -113,6 +119,7 @@ object Kiosk {
             }
         }
         RESTRICTIONS.forEach { r -> step("restrict $r") { dpm.addUserRestriction(admin, r) } }
+        OBSOLETE_RESTRICTIONS.forEach { r -> step("unrestrict $r") { dpm.clearUserRestriction(admin, r) } }
         grantOwnPermissions(context)
         takeDialerRoleSilently(context)
         Loudness.makeLoud(context)
@@ -135,7 +142,7 @@ object Kiosk {
         }
         step("status bar") { dpm.setStatusBarDisabled(admin, false) }
         step("lock screen") { dpm.setKeyguardDisabled(admin, false) }
-        RESTRICTIONS.forEach { r -> step("unrestrict $r") { dpm.clearUserRestriction(admin, r) } }
+        (RESTRICTIONS + OBSOLETE_RESTRICTIONS).forEach { r -> step("unrestrict $r") { dpm.clearUserRestriction(admin, r) } }
         giveBackDialerRole(activity)
     }
 

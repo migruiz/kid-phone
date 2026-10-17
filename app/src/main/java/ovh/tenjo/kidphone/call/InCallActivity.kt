@@ -3,6 +3,7 @@ package ovh.tenjo.kidphone.call
 import android.os.Bundle
 import android.os.PowerManager
 import android.telecom.Call
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -59,6 +60,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import ovh.tenjo.kidphone.data.Store
+import ovh.tenjo.kidphone.kiosk.Loudness
 import ovh.tenjo.kidphone.ui.Avatar
 import ovh.tenjo.kidphone.ui.CallGreen
 import ovh.tenjo.kidphone.ui.CallRed
@@ -118,6 +121,12 @@ class InCallActivity : ComponentActivity() {
     override fun onDestroy() {
         proximity?.let { if (it.isHeld) it.release() }
         super.onDestroy()
+    }
+
+    /** In kid mode the volume buttons do nothing here either: calls stay at full volume. */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (Store.get(this).locked && Loudness.isVolumeKey(event.keyCode)) return true
+        return super.dispatchKeyEvent(event)
     }
 }
 

@@ -7,8 +7,13 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Looper
-import android.os.UserManager
+import android.view.KeyEvent
+import androidx.core.content.ContextCompat
+import ovh.tenjo.kidphone.data.Store
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -37,29 +42,62 @@ object Loudness {
             STREAMS.any { audio.getStreamVolume(it) < audio.getStreamMaxVolume(it) }
         if (!muted && !quiet) return
 
-        // In kid mode the volume buttons are blocked, and that block stops this app changing the
-        // volume too, so it is lifted for a moment and put straight back.
-        val blocked = owner && context.getSystemService(UserManager::class.java)
-            .hasUserRestriction(UserManager.DISALLOW_ADJUST_VOLUME)
-        if (blocked) step("allow volume change") { dpm.clearUserRestriction(admin, UserManager.DISALLOW_ADJUST_VOLUME) }
-        try {
-            // Leaving Do Not Disturb or silent needs "Do Not Disturb access", which a
-            // device-owner app has.
-            step("Do Not Disturb off") {
-                if (notifications.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL) {
-                    notifications.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
-                }
+        // Leaving Do Not Disturb or silent needs "Do Not Disturb access", which a device-owner
+        // app has.
+        step("Do Not Disturb off") {
+            if (notifications.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL) {
+                notifications.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
             }
-            step("silent off") {
-                if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) audio.ringerMode = AudioManager.RINGER_MODE_NORMAL
-            }
-            if (muted) step("unmute") { dpm.setMasterVolumeMuted(admin, false) }
-            for (stream in STREAMS) {
-                step("volume $stream") { audio.setStreamVolume(stream, audio.getStreamMaxVolume(stream), 0) }
-            }
-        } finally {
-            if (blocked) step("block volume buttons") { dpm.addUserRestriction(admin, UserManager.DISALLOW_ADJUST_VOLUME) }
         }
+        step("silent off") {
+            if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) audio.ringerMode = AudioManager.RINGER_MODE_NORMAL
+        }
+        if (muted) step("unmute") { dpm.setMasterVolumeMuted(admin, false) }
+        for (stream in STREAMS) {
+            step("volume $stream") { audio.setStreamVolume(stream, audio.getStreamMaxVolume(stream), 0) }
+        }
+    }
+
+    // ---- Keeping it loud ----
+
+    /** True for the volume-up, volume-down and mute buttons, which do nothing in kid mode. */
+    fun isVolumeKey(keyCode: Int): Boolean = keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+        keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_MUTE
+
+    private var watcher: BroadcastReceiver? = null
+    private var appContext: Context? = null
+    private val reassert = Runnable { appContext?.let { if (Store.get(it).locked) makeLoud(it) } }
+
+    /**
+     * While kid mode runs, puts the volume straight back to 100% whenever something changes it
+     * (a volume button pressed while the screen is off, silent mode, Do Not Disturb). The kid
+     * screen and call screen also swallow the volume buttons, so normally nothing changes.
+     */
+    fun watch(context: Context) {
+        if (watcher != null) return
+        val app = context.applicationContext
+        appContext = app
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, intent: Intent) {
+                handler.removeCallbacks(reassert)
+                handler.postDelayed(reassert, 300)
+            }
+        }
+        val changes = IntentFilter().apply {
+            addAction("android.media.VOLUME_CHANGED_ACTION")
+            addAction(AudioManager.RINGER_MODE_CHANGED_ACTION)
+            addAction(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
+        }
+        // Exported: these come from the system, and only the system sends them.
+        ContextCompat.registerReceiver(app, receiver, changes, ContextCompat.RECEIVER_EXPORTED)
+        watcher = receiver
+    }
+
+    fun unwatch(context: Context) {
+        val receiver = watcher ?: return
+        watcher = null
+        handler.removeCallbacks(reassert)
+        runCatching { context.applicationContext.unregisterReceiver(receiver) }
     }
 
     // ---- Vibrating while a call rings ----

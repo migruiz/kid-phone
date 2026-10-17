@@ -3,6 +3,7 @@ package ovh.tenjo.kidphone
 import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.KeyEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -28,6 +29,7 @@ import ovh.tenjo.kidphone.call.CallManager
 import ovh.tenjo.kidphone.data.Contact
 import ovh.tenjo.kidphone.data.Store
 import ovh.tenjo.kidphone.kiosk.Kiosk
+import ovh.tenjo.kidphone.kiosk.Loudness
 import ovh.tenjo.kidphone.ui.AllowedEditor
 import ovh.tenjo.kidphone.ui.ContactsEditor
 import ovh.tenjo.kidphone.ui.DialerSetupScreen
@@ -89,7 +91,19 @@ open class MainActivity : ComponentActivity() {
             }
         }
         refresh()
+        if (isHomeScreen) Loudness.watch(this) // kid mode runs here: keep the volume at 100%
         setContent { KidTheme { Content() } }
+    }
+
+    override fun onDestroy() {
+        if (isHomeScreen) Loudness.unwatch(this)
+        super.onDestroy()
+    }
+
+    /** In kid mode the volume buttons do nothing, so the ring and call volume stay at 100%. */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (store.locked && Loudness.isVolumeKey(event.keyCode)) return true
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onNewIntent(intent: Intent) {
