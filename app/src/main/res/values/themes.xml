@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark, like the kid screen, so the phone doesn't flash white while it starts. -->
+    <color name="kid_background">#FF0A0E1C</color>
+    <color name="icon_background">#FF1E88E5</color>
+
+    <style name="Theme.KidPhone" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/kid_background</item>
+    </style>
+</resources>
