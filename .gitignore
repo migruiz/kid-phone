@@ -8,3 +8,6 @@ captures/
 
 # Firebase config for the parent app: comes from a GitHub secret in releases.
 parent/google-services.json
+
+# release.ps1 output
+build/release/

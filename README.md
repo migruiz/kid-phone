@@ -89,27 +89,24 @@ Needs Android 10 or later. Tested on a Xiaomi Mi A2 Lite (Android 10) and the An
 ## Releases and updates
 
 Both apps carry the same version (`appVersionName` in `gradle.properties`; 1.2.3 becomes version
-code 10203). To publish a new version:
+code 10203). To publish a new version, from this PC:
 
 ```
-# set appVersionName=1.2.0 in gradle.properties, commit, then
-git tag v1.2.0
-git push origin main v1.2.0
+# set appVersionName=1.2.0 in gradle.properties and commit, then
+.\release.ps1
 ```
 
-GitHub Actions (`.github/workflows/release.yml`) builds both apps, checks they are signed with the
-Kid Phone key, and publishes a release with `kid-phone.apk` and `kid-phone-parent.apk`. The apps
-check `releases/latest`:
+It runs the tests, builds both apps, checks they are signed with the Kid Phone key (this PC's
+`%USERPROFILE%\.android\debug.keystore`), tags `v1.2.0`, pushes, and uploads `kid-phone.apk` and
+`kid-phone-parent.apk` as a GitHub release. The parent app's Firebase config,
+`parent/google-services.json`, is needed for the build and is not in git. The apps check
+`releases/latest`:
 
 - **Kid Phone** checks every hour on Wi-Fi, downloads a newer version, and installs it the next
   time the screen is off and no call is going on (or at once from *padlock → Version*). As device
   owner it needs no confirmation. Installing restarts it and kid mode comes straight back.
 - **Kid Phone Parent** checks every 6 hours and when *Version* is tapped. Android asks "Update?" the
   first time; from Android 12 on, later updates install by themselves.
-
-The workflow needs two repository secrets: `SIGNING_KEYSTORE_BASE64` (this PC's
-`%USERPROFILE%\.android\debug.keystore`, base64) and `PARENT_GOOGLE_SERVICES_JSON_BASE64` (the
-parent app's Firebase config, base64; locally it is `parent/google-services.json`, not in git).
 
 Release builds are normal apps; debug builds are marked test-only (see "Getting out" below).
 

@@ -20,6 +20,19 @@ android {
         manifestPlaceholders["cleartext"] = "false"
     }
 
+    signingConfigs {
+        // The key Kid Phone was first installed with: this PC's Android debug key. Android only
+        // accepts updates signed with the same key. KIDPHONE_KEYSTORE can point at a copy elsewhere.
+        create("kidphone") {
+            storeFile = file(
+                System.getenv("KIDPHONE_KEYSTORE") ?: "${System.getProperty("user.home")}/.android/debug.keystore"
+            )
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             // For testing at home before the internet address works:
@@ -32,9 +45,8 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // Sideloaded from GitHub releases. Same key as Kid Phone (this PC's debug key, also a
-            // GitHub secret), so updates install over the previous version.
-            signingConfig = signingConfigs.getByName("debug")
+            // Sideloaded, never published. Same key as the debug builds, so either installs over the other.
+            signingConfig = signingConfigs.getByName("kidphone")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }

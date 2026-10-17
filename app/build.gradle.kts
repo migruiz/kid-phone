@@ -17,6 +17,19 @@ android {
         versionName = rootProject.extra["appVersionName"] as String
     }
 
+    signingConfigs {
+        // The key Kid Phone was first installed with: this PC's Android debug key. Android only
+        // accepts updates signed with the same key. KIDPHONE_KEYSTORE can point at a copy elsewhere.
+        create("kidphone") {
+            storeFile = file(
+                System.getenv("KIDPHONE_KEYSTORE") ?: "${System.getProperty("user.home")}/.android/debug.keystore"
+            )
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             // A test-only device owner can be removed from a computer ("adb shell dpm
@@ -29,9 +42,8 @@ android {
             // Releases update themselves from GitHub, and Android refuses to install a test-only
             // app that way, so release builds are normal apps.
             manifestPlaceholders["testOnly"] = "false"
-            // Sideloaded, never published. Signed with the same key as the debug build so either
-            // installs over the other. A device-owner app can only be updated with the same key.
-            signingConfig = signingConfigs.getByName("debug")
+            // Sideloaded, never published. Same key as the debug builds, so either installs over the other.
+            signingConfig = signingConfigs.getByName("kidphone")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
