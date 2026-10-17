@@ -85,7 +85,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
 
   // Everything in the kid answer except the ticking remainingSeconds. When it changes, the version goes up.
   function fingerprint(now) {
-    return JSON.stringify([allowedPackages(), kidRequests(now).map((r) => [r.id, r.status, r.minutes])]);
+    return JSON.stringify([allowedPackages(), kidRequests(now).map((r) => [r.id, r.status, r.minutes, r.approvedUntil])]);
   }
 
   /** After any change: bump the version if the kid answer changed, save, wake long-polls, re-arm the timer. */
@@ -166,7 +166,8 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
   // ---------- FCM ----------
 
   function closedMessage(r) {
-    return { type: 'request_closed', id: r.id, status: r.status, minutes: String(r.minutes ?? 0), by: r.decidedBy ?? '' };
+    const by = r.status === 'ended' ? r.endedBy : r.decidedBy;
+    return { type: 'request_closed', id: r.id, status: r.status, minutes: String(r.minutes ?? 0), by: by ?? '' };
   }
 
   /** Sends a data message to every parent phone; returns how many were targeted. Never blocks the caller. */
@@ -420,6 +421,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
       minutes: r.minutes,
     };
     if (r.status === 'approved') out.remainingSeconds = remainingSeconds(r, now);
+    if (r.status === 'ended') out.endedBy = r.endedBy ?? null;
     return out;
   }
 
@@ -461,6 +463,34 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
       log(`${pkg} ${allowed ? 'allowed' : 'blocked'} by ${parent.name}`);
     }
     return { ok: true };
+  }
+
+  /**
+   * Changes a call time that is running: 10, 30 or 60 more minutes from now, or 0 to stop it now
+   * (status "ended"). The child's phone hears it through its long-poll.
+   */
+  function changeWindow(who, id, minutes) {
+    if (!ANSWER_MINUTES.includes(minutes)) throw new HttpError(400, 'bad_minutes', 'minutes must be 0, 10, 30 or 60');
+    refresh();
+    const now = clock.now();
+    const r = findRequest(id);
+    if (!(r.status === 'approved' && r.approvedUntil > now)) {
+      throw new HttpError(409, 'not_running', 'That call time is not running any more');
+    }
+    if (minutes === 0) {
+      r.status = 'ended';
+      r.endedBy = who.name;
+      r.approvedUntil = now;
+      r.finishedAt = now;
+      log(`call time ${r.id} stopped by ${who.name}`);
+    } else {
+      r.minutes = minutes;
+      r.approvedUntil = now + minutes * MINUTE;
+      log(`call time ${r.id} changed to ${minutes} more minutes by ${who.name}`);
+    }
+    commit();
+    if (minutes === 0) notifyParents(closedMessage(r));
+    return { request: parentRequest(r, now) };
   }
 
   function answer(parent, id, minutes) {
@@ -539,6 +569,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     readIcon,
     setAllowed,
     answer,
+    changeWindow,
     replaceKid,
     unpair,
     start,

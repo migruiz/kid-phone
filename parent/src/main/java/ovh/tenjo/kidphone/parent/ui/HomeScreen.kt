@@ -125,19 +125,38 @@ fun HomeScreen() {
             if (st.requests.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
                 SectionLabel("Calls to ask about")
-                RequestsSection(childName, st.requests, answering.keys) { r, minutes ->
-                    answering[r.id] = true
-                    scope.launch {
-                        runCatching { Hub.answer(r.id, minutes) }
-                            .onSuccess { res ->
-                                Notifications.cancel(context, r.id)
-                                if (res.alreadyAnswered) info = "Already answered: ${Notifications.outcome(res.request.status, res.request.minutes, res.request.decidedBy)}."
-                                runCatching { Hub.state() }.onSuccess { state = it }
-                            }
-                            .onFailure { info = "Couldn't send the answer. Check the internet connection and try again." }
-                        answering.remove(r.id)
-                    }
-                }
+                RequestsSection(
+                    childName, st.requests, answering.keys,
+                    onAnswer = { r, minutes ->
+                        answering[r.id] = true
+                        scope.launch {
+                            runCatching { Hub.answer(r.id, minutes) }
+                                .onSuccess { res ->
+                                    Notifications.cancel(context, r.id)
+                                    if (res.alreadyAnswered) info = "Already answered: ${Notifications.outcome(res.request.status, res.request.minutes, res.request.decidedBy)}."
+                                    runCatching { Hub.state() }.onSuccess { state = it }
+                                }
+                                .onFailure { info = "Couldn't send the answer. Check the internet connection and try again." }
+                            answering.remove(r.id)
+                        }
+                    },
+                    onChange = { r, minutes ->
+                        answering[r.id] = true
+                        scope.launch {
+                            runCatching { Hub.changeWindow(r.id, minutes) }
+                                .onSuccess { runCatching { Hub.state() }.onSuccess { state = it } }
+                                .onFailure { e ->
+                                    info = if ((e as? ovh.tenjo.kidphone.shared.HttpError)?.code == "not_running") {
+                                        "That call time has already ended."
+                                    } else {
+                                        "Couldn't change it. Check the internet connection and try again."
+                                    }
+                                    runCatching { Hub.state() }.onSuccess { state = it }
+                                }
+                            answering.remove(r.id)
+                        }
+                    },
+                )
             }
             Spacer(Modifier.height(20.dp))
             SectionLabel("Apps")

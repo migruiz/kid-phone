@@ -215,12 +215,17 @@ fun RoundKey(
 
 /** Asks for the 8-digit parent PIN and calls [onUnlocked] when it is right. */
 @Composable
-fun ParentPinScreen(store: Store, onUnlocked: () -> Unit, onCancel: () -> Unit) {
+fun ParentPinScreen(
+    store: Store,
+    onUnlocked: () -> Unit,
+    onCancel: () -> Unit,
+    subtitle: String = "Type the PIN to open the parent settings.",
+) {
     var message by remember { mutableStateOf<String?>(null) }
     var errors by remember { mutableIntStateOf(0) }
     PinPad(
         title = "Parent PIN",
-        subtitle = "Type the PIN to open the parent settings.",
+        subtitle = subtitle,
         message = message,
         errorCount = errors,
         onCancel = onCancel,

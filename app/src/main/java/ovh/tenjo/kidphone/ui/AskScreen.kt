@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
@@ -40,6 +41,8 @@ fun AskScreen(
     onCall: () -> Unit,
     onStopAsking: () -> Unit,
     onClose: () -> Unit,
+    /** A parent who is with him answers here, after the PIN. Null when that isn't possible. */
+    onParentHere: (() -> Unit)? = null,
 ) {
     val name = contact.name.ifBlank { "them" }
     val waiting = error == null && (request == null || request.status == "pending")
@@ -71,6 +74,12 @@ fun AskScreen(
                     CircularProgressIndicator(color = Color.White, strokeWidth = 5.dp, modifier = Modifier.size(52.dp))
                     Spacer(Modifier.height(40.dp))
                     BigButton("Stop asking", onStopAsking, container = Color.White.copy(alpha = 0.12f))
+                    if (onParentHere != null) {
+                        Spacer(Modifier.height(12.dp))
+                        TextButton(onClick = onParentHere) {
+                            Text("Parent here? Answer with the PIN", color = Color.White.copy(alpha = 0.7f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
 
                 request?.status == "approved" -> {

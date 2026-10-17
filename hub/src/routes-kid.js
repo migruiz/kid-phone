@@ -66,5 +66,17 @@ export function kidRoutes(hub) {
         hub.createRequest({ contactName: optionalString(body, 'contactName', 80) ?? '', number: requiredString(body, 'number', 40) }),
     },
     { method: 'POST', path: '/kid/requests/:id/cancel', handle: ({ params }) => hub.cancelRequest(params.id) },
+    {
+      // A parent who is with the child answers on the child's phone, after typing its PIN there.
+      method: 'POST',
+      path: '/kid/requests/:id/answer',
+      handle: ({ params, body }) => hub.answer({ name: "A parent on the child's phone" }, params.id, body.minutes),
+    },
+    {
+      // The same parent changes or stops a running call time (behind the PIN on the child's phone).
+      method: 'POST',
+      path: '/kid/requests/:id/change',
+      handle: ({ params, body }) => hub.changeWindow({ name: "A parent on the child's phone" }, params.id, body.minutes),
+    },
   ];
 }

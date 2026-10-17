@@ -33,7 +33,14 @@ import ovh.tenjo.kidphone.ui.Muted
  * call times running now, and the last few answers.
  */
 @Composable
-fun RequestsSection(childName: String, requests: List<CallRequest>, busy: Set<String>, onAnswer: (CallRequest, Int) -> Unit) {
+fun RequestsSection(
+    childName: String,
+    requests: List<CallRequest>,
+    busy: Set<String>,
+    onAnswer: (CallRequest, Int) -> Unit,
+    /** Change a running call time: 0 stops it, otherwise minutes from now. */
+    onChange: (CallRequest, Int) -> Unit,
+) {
     val pending = requests.filter { it.status == "pending" }
     val running = requests.filter { it.status == "approved" && (it.remainingSeconds ?: 0) > 0 }
     val history = requests.filter { it !in pending && it !in running }.take(5)
@@ -57,12 +64,22 @@ fun RequestsSection(childName: String, requests: List<CallRequest>, busy: Set<St
 
     running.forEach { r ->
         Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFFDDF7E8), modifier = Modifier.fillMaxWidth()) {
-            Text(
-                "📞  $childName can ring ${r.contactName.ifBlank { r.number }} for ${((r.remainingSeconds ?: 0) + 59) / 60} more min " +
-                    "(${r.decidedBy ?: "a parent"} said yes)",
-                fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0B5D33),
-                modifier = Modifier.padding(16.dp),
-            )
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    "📞  $childName can ring ${r.contactName.ifBlank { r.number }} for ${((r.remainingSeconds ?: 0) + 59) / 60} more min",
+                    fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0B5D33),
+                )
+                Text(
+                    "${r.decidedBy ?: "A parent"} said yes. Change it to, from now:",
+                    fontSize = 14.sp, color = Color(0xFF2F7A52), modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(10 to "10 min", 30 to "30 min", 60 to "1 hour").forEach { (minutes, label) ->
+                        AnswerButton(label, CallGreen, enabled = r.id !in busy, Modifier.weight(1f)) { onChange(r, minutes) }
+                    }
+                    AnswerButton("Stop", Danger, enabled = r.id !in busy, Modifier.weight(1f)) { onChange(r, 0) }
+                }
+            }
         }
         Spacer(Modifier.height(12.dp))
     }
@@ -74,7 +91,10 @@ fun RequestsSection(childName: String, requests: List<CallRequest>, busy: Set<St
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(r.contactName.ifBlank { r.number }, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                        Text(Notifications.outcome(r.status, r.minutes, r.decidedBy), fontSize = 14.sp, color = Muted)
+                        Text(
+                            Notifications.outcome(r.status, r.minutes, if (r.status == "ended") r.endedBy else r.decidedBy),
+                            fontSize = 14.sp, color = Muted,
+                        )
                     }
                     Text(ago(r.agoMs), fontSize = 13.sp, color = Muted)
                 }

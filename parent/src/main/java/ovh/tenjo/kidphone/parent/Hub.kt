@@ -28,6 +28,8 @@ data class CallRequest(
     val minutes: Int?,
     val remainingSeconds: Long?,
     val agoMs: Long,
+    /** Who stopped a call time early (status "ended"). */
+    val endedBy: String? = null,
 )
 
 data class Parent(val name: String, val me: Boolean)
@@ -116,6 +118,12 @@ object Hub {
         return AnswerResult(parseRequest(json.getJSONObject("request"), System.currentTimeMillis()), json.optBoolean("alreadyAnswered"))
     }
 
+    /** Changes a running call time: 0 stops it, otherwise that many minutes from now. */
+    suspend fun changeWindow(requestId: String, minutes: Int): CallRequest {
+        val json = call { Http.post("$BASE/parent/requests/$requestId/change", JSONObject().put("minutes", minutes), token) }
+        return parseRequest(json.getJSONObject("request"), System.currentTimeMillis())
+    }
+
     suspend fun updateFcm(fcmToken: String) {
         if (token == null) return
         call { Http.put("$BASE/parent/fcm", JSONObject().put("fcmToken", fcmToken), token) }
@@ -189,6 +197,7 @@ object Hub {
         minutes = if (it.has("minutes") && !it.isNull("minutes")) it.getInt("minutes") else null,
         remainingSeconds = if (it.has("remainingSeconds") && !it.isNull("remainingSeconds")) it.getLong("remainingSeconds") else null,
         agoMs = (now - it.optLong("createdAt", now)).coerceAtLeast(0),
+        endedBy = if (it.isNull("endedBy")) null else it.optString("endedBy").ifBlank { null },
     )
 
     private fun JSONArray?.objects(): List<JSONObject> =

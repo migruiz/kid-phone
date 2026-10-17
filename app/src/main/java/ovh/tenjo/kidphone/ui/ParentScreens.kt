@@ -90,6 +90,10 @@ fun ParentMenu(
     onHub: () -> Unit,
     appsSummary: String,
     onApps: () -> Unit,
+    callTimes: List<CallTime>,
+    callTimeBusy: Boolean,
+    callTimeError: String?,
+    onChangeCallTime: (CallTime, Int) -> Unit,
     onUnlock: () -> Unit,
     onContacts: () -> Unit,
     onAllowed: () -> Unit,
@@ -151,6 +155,11 @@ fun ParentMenu(
                     }
                 }
             }
+        }
+
+        if (callTimes.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            CallTimesCard(callTimes, callTimeBusy, callTimeError, onChangeCallTime)
         }
 
         Spacer(Modifier.height(20.dp))

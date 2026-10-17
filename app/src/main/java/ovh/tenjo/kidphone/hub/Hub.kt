@@ -222,10 +222,56 @@ object Hub {
         val now = System.currentTimeMillis()
         val windows = _windows.value.filterValues { it > now }.toMutableMap()
         fresh.filter { it.status == "approved" && it.endsAt != null }.forEach { windows[it.number] = it.endsAt!! }
-        if (windows != _windows.value) {
-            _windows.value = windows
-            prefs.edit().putString(KEY_WINDOWS, JSONObject(windows as Map<*, *>).toString()).apply()
-        }
+        // A parent stopped a call time early.
+        fresh.filter { it.status == "ended" }.forEach { r -> windows.keys.removeAll { PhoneNumbers.same(it, r.number) } }
+        saveWindows(windows)
+    }
+
+    private fun saveWindows(windows: Map<String, Long>) {
+        if (windows == _windows.value) return
+        _windows.value = windows
+        prefs.edit().putString(KEY_WINDOWS, JSONObject(windows as Map<*, *>).toString()).apply()
+    }
+
+    /**
+     * A parent with the child answers on this phone (after the PIN): 0 says no, otherwise the
+     * minutes. Always through the hub, so the parents' phones show the same answer; needs the home
+     * Wi-Fi. Returns the request as it now stands (the other parent may have answered first).
+     * Throws with a readable message.
+     */
+    suspend fun answerHere(requestId: String, minutes: Int): Pair<KidRequest, Boolean> = withContext(Dispatchers.IO) {
+        val json = hubCall { Http.post(url("/kid/requests/$requestId/answer"), JSONObject().put("minutes", minutes), token, timeoutMs = 8_000) }
+        val r = parseRequest(json.getJSONObject("request"), System.currentTimeMillis())
+        merge(listOf(r))
+        wake.trySend(Unit)
+        r to json.optBoolean("alreadyAnswered")
+    }
+
+    /**
+     * A parent changes or stops a running call time on this phone (in the parent menu): 0 stops
+     * it, otherwise that many minutes from now. Always through the hub, so every phone agrees;
+     * needs the home Wi-Fi. Throws with a readable message.
+     */
+    suspend fun changeHere(number: String, minutes: Int) = withContext(Dispatchers.IO) {
+        val id = _requests.value.firstOrNull { it.status == "approved" && PhoneNumbers.same(it.number, number) }?.id
+            ?: throw IllegalStateException("Can't change it from here right now. Changing call times needs the home Wi-Fi.")
+        val json = hubCall { Http.post(url("/kid/requests/$id/change"), JSONObject().put("minutes", minutes), token, timeoutMs = 8_000) }
+        merge(listOf(parseRequest(json.getJSONObject("request"), System.currentTimeMillis())))
+        wake.trySend(Unit)
+    }
+
+    /** Runs a hub call, turning failures into a message a parent can act on. */
+    private fun hubCall(block: () -> JSONObject): JSONObject = try {
+        block()
+    } catch (e: HttpError) {
+        throw IllegalStateException(
+            when (e.code) {
+                "not_running" -> "That call time has already ended."
+                else -> e.message ?: "The hub said no"
+            }
+        )
+    } catch (e: java.io.IOException) {
+        throw IllegalStateException("Couldn't reach the hub. This needs the home Wi-Fi, so every phone stays the same.")
     }
 
     /** Something changed on the phone (an app installed or removed): tell the hub soon. */

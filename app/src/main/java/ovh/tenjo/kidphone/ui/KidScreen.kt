@@ -312,23 +312,25 @@ private fun PersonRow(contact: Contact, windowEnd: Long?, now: LocalDateTime, mo
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Face(contact, face)
                 Spacer(Modifier.width(12.dp))
-                Text(
-                    contact.name.ifBlank { prettyNumber(contact.number) },
-                    fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.White,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (contact.askFirst) {
-                    Spacer(Modifier.width(6.dp))
+                // The name gets the whole width; an "ask first" badge goes underneath it.
+                Column(Modifier.weight(1f)) {
                     Text(
-                        if (minutesLeft != null) "$minutesLeft min" else "Ask first",
-                        fontSize = 14.sp, fontWeight = FontWeight.ExtraBold,
-                        color = if (minutesLeft != null) Color(0xFFB7F7CF) else Color(0xFFFFE2A8),
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background((if (minutesLeft != null) CallGreen else AskAmber).copy(alpha = 0.22f))
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        contact.name.ifBlank { prettyNumber(contact.number) },
+                        fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.White,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
+                    if (contact.askFirst) {
+                        Text(
+                            if (minutesLeft != null) "$minutesLeft min left" else "Ask first",
+                            fontSize = 14.sp, fontWeight = FontWeight.ExtraBold,
+                            color = if (minutesLeft != null) Color(0xFFB7F7CF) else Color(0xFFFFE2A8),
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .clip(CircleShape)
+                                .background((if (minutesLeft != null) CallGreen else AskAmber).copy(alpha = 0.22f))
+                                .padding(horizontal = 10.dp, vertical = 3.dp),
+                        )
+                    }
                 }
                 Spacer(Modifier.width(8.dp))
                 Box(

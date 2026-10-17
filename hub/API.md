@@ -120,6 +120,15 @@ restart.
 → `200 {"ok":true}`. Pending → `cancelled`, `request_closed` sent. Anything else: no change.
 Unknown id → `404`.
 
+### `POST /kid/requests/{id}/answer`
+Body: `{"minutes":30}` (0, 10, 30 or 60) → same reply as `POST /parent/requests/{id}/answer`.
+A parent who is with the child answers on the child's phone, after typing its PIN there. Recorded
+as decided by "A parent on the child's phone"; the parents get `request_closed` as usual.
+
+### `POST /kid/requests/{id}/change`
+Body: `{"minutes":10}` → same as `POST /parent/requests/{id}/change`, done by "A parent on the
+child's phone" (behind its PIN).
+
 ## Parent routes (port 8775)
 
 ### `POST /parent/pair`
@@ -160,6 +169,16 @@ Body: `{"minutes":30}` — `0` rejects; otherwise one of `10`, `30`, `60` (anyth
 The first answer wins. If the request is no longer pending, nothing changes and the current request
 comes back with `"alreadyAnswered":true`. On a real answer the hub sends `request_closed` to every
 parent (so the other parent's notification goes away) and bumps the kid state version.
+
+### `POST /parent/requests/{id}/change`
+Body: `{"minutes":10}` — `0` stops the call time now; otherwise `10`, `30` or `60` more minutes
+**counted from now** (an hour given earlier can become ten minutes from now).
+→ `200 {"request":{...}}` · `409 {"error":"not_running"}` (not approved, or its time is over) ·
+`400 {"error":"bad_minutes"}`.
+Stopping sets the status to `ended` (with `endedBy`), the child's phone sees it in `/kid/state`
+for 2 minutes like other finished requests and closes the call time, and the parents get
+`request_closed` with `status:"ended"` and `by` = who stopped it. A change bumps the kid state
+version, so the child's phone hears it at once while it is at home.
 
 ### `POST /parent/replace-kid`
 → `200 {"ok":true}` — for 10 minutes a new child phone may register without the old token.

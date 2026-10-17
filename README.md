@@ -48,6 +48,15 @@ An Android app that turns a phone into a child's phone.
   until the time runs out. A call already going when it runs out carries on. Nobody answering in 5
   minutes counts as no answer. Asking only works on the home Wi-Fi; a call time already given keeps
   working away from home. That person can still ring the child any time.
+  - **A parent who is with him** can answer on his phone: *Parent here? Answer with the PIN* on
+    the asking screen, then 10 min / 30 min / 1 hour / No.
+  - **A running call time can be changed or stopped**: 10, 30 or 60 minutes counted from now, or
+    Stop. In Kid Phone Parent (on the call time card) and on his phone (padlock → PIN, at the top
+    of the parent menu).
+  - **Everything stays in step**: answers, changes and the apps switches always go through the hub,
+    whichever phone they are made on, so every phone shows the same. On his phone that needs the
+    home Wi-Fi; a change made from a parent's phone while he is out reaches his phone when it is
+    back on the home Wi-Fi.
 - **Calls going out only to the call buttons.** In kid mode any outgoing call that isn't to a call
   button (an "ask first" one only during a call time a parent gave) or an emergency number is hung
   up at once, whichever app started it.

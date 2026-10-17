@@ -221,3 +221,65 @@ test('without a Firebase key requests still work', async (t) => {
   assert.ok(h.logs.some((l) => l.includes('alerts are off')));
   assert.equal((await answer(h, Miguel, id, 60)).body.request.remainingSeconds, 3600);
 });
+
+test("a parent can answer on the child's phone; the parents' phones hear who answered", async (t) => {
+  const h = await startHub();
+  t.after(h.stop);
+  const { kidToken, Miguel } = await setupFamily(h);
+  const { id } = (await ask(h, kidToken)).body;
+  h.fcm.calls.length = 0;
+
+  const res = await h.kid('POST', `/kid/requests/${id}/answer`, { token: kidToken, body: { minutes: 30 } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.alreadyAnswered, false);
+  assert.equal(res.body.request.status, 'approved');
+  assert.equal(res.body.request.remainingSeconds, 30 * 60);
+  assert.deepEqual(tokensCalled(h), ['fcm-Miguel', 'fcm-Sonia']);
+  assert.equal(h.fcm.calls[0].data.type, 'request_closed');
+  assert.equal(h.fcm.calls[0].data.by, "A parent on the child's phone");
+
+  // A parent answering from their own phone afterwards changes nothing.
+  const late = await answer(h, Miguel, id, 10);
+  assert.equal(late.body.alreadyAnswered, true);
+  assert.equal(late.body.request.minutes, 30);
+
+  assert.equal((await h.kid('POST', `/kid/requests/${id}/answer`, { token: kidToken, body: { minutes: 5 } })).status, 400);
+  assert.equal((await h.kid('POST', `/kid/requests/${id}/answer`, { body: { minutes: 10 } })).status, 401);
+});
+
+test("a running call time can be changed or stopped, by a parent or on the child's phone", async (t) => {
+  const h = await startHub();
+  t.after(h.stop);
+  const { kidToken, Miguel } = await setupFamily(h);
+  const change = (path, token, id, minutes) => (path === 'kid' ? h.kid : h.parent)('POST', `/${path}/requests/${id}/change`, { token, body: { minutes } });
+  const { id } = (await ask(h, kidToken)).body;
+
+  // Not running yet: nothing to change.
+  assert.equal((await change('parent', Miguel, id, 10)).status, 409);
+
+  await answer(h, Miguel, id, 60);
+  const v1 = (await kidState(h, kidToken)).version;
+  h.clock.advance(5 * MINUTE);
+  const shorter = await change('parent', Miguel, id, 10);
+  assert.equal(shorter.status, 200);
+  assert.equal(shorter.body.request.remainingSeconds, 10 * 60); // ten minutes from now, not from the yes
+  const s1 = await kidState(h, kidToken);
+  assert.ok(s1.version > v1, 'the child is woken');
+  assert.deepEqual(s1.requests[0], { id, number: NUMBER, status: 'approved', remainingSeconds: 600, minutes: 10 });
+
+  h.fcm.calls.length = 0;
+  const stop = await change('kid', kidToken, id, 0);
+  assert.equal(stop.body.request.status, 'ended');
+  assert.equal(stop.body.request.endedBy, "A parent on the child's phone");
+  assert.deepEqual((await kidState(h, kidToken)).requests[0], { id, number: NUMBER, status: 'ended' });
+  assert.deepEqual(tokensCalled(h), ['fcm-Miguel', 'fcm-Sonia']);
+  assert.equal(h.fcm.calls[0].data.status, 'ended');
+  assert.equal(h.fcm.calls[0].data.by, "A parent on the child's phone");
+
+  // Stopped: asking again makes a new request.
+  assert.equal((await change('parent', Miguel, id, 30)).status, 409);
+  const again = await ask(h, kidToken);
+  assert.notEqual(again.body.id, id);
+  assert.equal(again.body.status, 'pending');
+  assert.equal((await change('parent', Miguel, id, 5)).status, 400);
+});

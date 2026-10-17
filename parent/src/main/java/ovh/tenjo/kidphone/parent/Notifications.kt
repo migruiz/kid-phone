@@ -101,6 +101,7 @@ object Notifications {
             "rejected" -> "$who said no"
             "expired" -> "Nobody answered in time"
             "cancelled" -> "Stopped asking"
+            "ended" -> "$who stopped the call time early"
             else -> "Answered"
         }
     }

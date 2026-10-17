@@ -41,6 +41,8 @@ import ovh.tenjo.kidphone.ui.AppsEditor
 import ovh.tenjo.kidphone.ui.appsSummary
 import ovh.tenjo.kidphone.ui.AppsScreen
 import ovh.tenjo.kidphone.ui.AskScreen
+import ovh.tenjo.kidphone.ui.CallTime
+import ovh.tenjo.kidphone.ui.ParentAnswerScreen
 import ovh.tenjo.kidphone.ui.ContactsEditor
 import ovh.tenjo.kidphone.ui.DialerSetupScreen
 import ovh.tenjo.kidphone.ui.HubScreen
@@ -55,12 +57,18 @@ import ovh.tenjo.kidphone.ui.hubSummary
 
 private enum class Screen { Kid, Apps, Pin, Parent, Contacts, Allowed, ChangePin, Hub, AppsEdit }
 
+/** Where the asking flow is: waiting for an answer, a parent typing the PIN, or answering here. */
+private enum class AskStage { Wait, Pin, Answer }
+
 /** The child asked to ring an "ask first" person; waiting for or showing the answer. */
 private data class Asking(
     val contact: Contact,
     val requestId: String? = null,
     val request: KidRequest? = null,
     val error: String? = null,
+    val stage: AskStage = AskStage.Wait,
+    val busy: Boolean = false,
+    val answerError: String? = null,
 )
 
 /**
@@ -87,6 +95,8 @@ open class MainActivity : ComponentActivity() {
     private var setupContactsDone by mutableStateOf(false)
     private var screen by mutableStateOf(Screen.Kid)
     private var asking by mutableStateOf<Asking?>(null)
+    private var callTimeBusy by mutableStateOf(false)
+    private var callTimeError by mutableStateOf<String?>(null)
 
     /** Set while unlocking, so the screen doesn't lock itself again on the way out. */
     private var leaving = false
@@ -281,6 +291,27 @@ open class MainActivity : ComponentActivity() {
             else -> InactivityTimeout(active = screen != Screen.Kid, onTimeout = { screen = Screen.Kid }) {
                 val ask = asking
                 when {
+                    screen == Screen.Kid && ask != null && ask.stage == AskStage.Pin -> ParentPinScreen(
+                        store,
+                        subtitle = "Type the PIN to answer for him here.",
+                        onUnlocked = { asking = ask.copy(stage = AskStage.Answer, answerError = null) },
+                        onCancel = { asking = ask.copy(stage = AskStage.Wait) },
+                    )
+                    screen == Screen.Kid && ask != null && ask.stage == AskStage.Answer -> ParentAnswerScreen(
+                        name = ask.contact.name.ifBlank { "them" },
+                        busy = ask.busy,
+                        error = ask.answerError,
+                        onAnswer = { minutes ->
+                            val id = ask.requestId ?: return@ParentAnswerScreen
+                            asking = ask.copy(busy = true, answerError = null)
+                            lifecycleScope.launch {
+                                runCatching { Hub.answerHere(id, minutes) }
+                                    .onSuccess { (r, _) -> asking = asking?.copy(stage = AskStage.Wait, request = r, busy = false) }
+                                    .onFailure { e -> asking = asking?.copy(busy = false, answerError = e.message) }
+                            }
+                        },
+                        onCancel = { asking = ask.copy(stage = AskStage.Wait) },
+                    )
                     screen == Screen.Kid && ask != null -> {
                         val latest = requests.firstOrNull { it.id == ask.requestId }
                         LaunchedEffect(latest) { if (latest != null && latest != ask.request) asking = ask.copy(request = latest) }
@@ -294,6 +325,9 @@ open class MainActivity : ComponentActivity() {
                                 asking = null
                             },
                             onClose = { asking = null },
+                            onParentHere = if (ask.requestId != null) {
+                                { asking = ask.copy(stage = AskStage.Pin) }
+                            } else null,
                         )
                     }
                     else -> when (screen) {
@@ -343,6 +377,21 @@ open class MainActivity : ComponentActivity() {
                         onHub = { screen = Screen.Hub },
                         appsSummary = appsSummary(allowedApps, home),
                         onApps = { screen = Screen.AppsEdit },
+                        callTimes = windows.mapNotNull { (number, endsAt) ->
+                            val left = (endsAt - System.currentTimeMillis()) / 60_000 + 1
+                            if (endsAt <= System.currentTimeMillis()) null
+                            else CallTime(store.button(number)?.name?.ifBlank { null } ?: number, number, left)
+                        },
+                        callTimeBusy = callTimeBusy,
+                        callTimeError = callTimeError,
+                        onChangeCallTime = { ct, minutes ->
+                            callTimeBusy = true
+                            callTimeError = null
+                            lifecycleScope.launch {
+                                runCatching { Hub.changeHere(ct.number, minutes) }.onFailure { callTimeError = it.message }
+                                callTimeBusy = false
+                            }
+                        },
                         onChangePin = { screen = Screen.ChangePin },
                         childName = childName,
                         onChildName = store::saveChildName,

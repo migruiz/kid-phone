@@ -47,6 +47,11 @@ export function parentRoutes(hub) {
       path: '/parent/requests/:id/answer',
       handle: ({ who, params, body }) => hub.answer(who, params.id, body.minutes),
     },
+    {
+      method: 'POST',
+      path: '/parent/requests/:id/change',
+      handle: ({ who, params, body }) => hub.changeWindow(who, params.id, body.minutes),
+    },
     { method: 'POST', path: '/parent/replace-kid', handle: ({ who }) => hub.replaceKid(who) },
     { method: 'DELETE', path: '/parent/me', handle: ({ who }) => hub.unpair(who) },
   ];
