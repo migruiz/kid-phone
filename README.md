@@ -13,15 +13,15 @@ An Android app that turns a phone into a child's phone.
   calls still appear in the phone's call history.
 - **Calls are never missed.** In kid mode the phone switches off silent mode and Do Not Disturb and
   sets ring and call volume to 100% whenever kid mode starts, whenever the kid screen comes back on,
-  and just before an allowed caller rings. Incoming calls also vibrate (for at most a minute), even
-  if vibration is off in the phone's settings.
+  and just before an allowed caller rings. The volume buttons do nothing in kid mode. Incoming calls
+  also vibrate (for at most a minute), even if vibration is off in the phone's settings.
 - **Ringing sound** while a call goes out, until it is answered.
 - **Locked in.** No notification shade or quick settings (so no Wi-Fi, Bluetooth or airplane mode),
   no home or recent-apps buttons, no power-off menu, no lock screen, no other app can open. Safe
   mode and factory reset from Settings are blocked.
 - **Survives restarts and updates.** If the phone was locked, it comes straight back to the kid
   screen.
-- **Parent exit.** The small padlock at the top right asks for the parent PIN. From there: unlock the
+- **Parent exit.** The small padlock at the top right asks for the 8-digit parent PIN. From there: unlock the
   phone (it becomes a normal Android phone), edit the call buttons, edit who can ring, change the
   PIN, change the name on screen. Five wrong PINs in a row make it wait a minute, then longer.
 - **Opening the app always locks the phone again.**
@@ -60,7 +60,7 @@ Needs Android 10 or later. Tested on a Xiaomi Mi A2 Lite (Android 10) and the An
 
    If it says there are accounts on the device even though you removed them all, wait a minute
    (right after a restart Google services are still starting) and run it again.
-5. Open **Kid Phone** on the phone and follow the screens: choose the parent PIN, enter the call
+5. Open **Kid Phone** on the phone and follow the screens: choose the 8-digit parent PIN, enter the call
    buttons, make it the phone app (on Android 10–13 tap *Set as default*), start kid mode.
 6. Put the child's SIM card in.
 

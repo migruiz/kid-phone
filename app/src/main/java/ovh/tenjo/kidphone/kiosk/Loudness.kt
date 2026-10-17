@@ -8,6 +8,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.UserManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -20,28 +21,44 @@ import android.util.Log
 object Loudness {
     private const val TAG = "KidPhone"
 
-    /** Silent and Do Not Disturb off; ring and call volume to 100%. */
+    private val STREAMS = listOf(AudioManager.STREAM_RING, AudioManager.STREAM_VOICE_CALL)
+
+    /** Silent and Do Not Disturb off; ring and call volume to 100%. Does nothing if already so. */
     fun makeLoud(context: Context) {
         val audio = context.getSystemService(AudioManager::class.java) ?: return
         val notifications = context.getSystemService(NotificationManager::class.java)
+        val owner = Kiosk.isDeviceOwner(context)
+        val dpm = context.getSystemService(DevicePolicyManager::class.java)
+        val admin = Kiosk.admin(context)
 
-        // Leaving Do Not Disturb or silent needs "Do Not Disturb access", which a device-owner
-        // app has (and which setup also grants from the computer, to be sure).
-        step("Do Not Disturb off") {
-            if (notifications.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL) {
-                notifications.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+        val muted = owner && runCatching { dpm.isMasterVolumeMuted(admin) }.getOrDefault(false)
+        val quiet = notifications.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL ||
+            audio.ringerMode != AudioManager.RINGER_MODE_NORMAL ||
+            STREAMS.any { audio.getStreamVolume(it) < audio.getStreamMaxVolume(it) }
+        if (!muted && !quiet) return
+
+        // In kid mode the volume buttons are blocked, and that block stops this app changing the
+        // volume too, so it is lifted for a moment and put straight back.
+        val blocked = owner && context.getSystemService(UserManager::class.java)
+            .hasUserRestriction(UserManager.DISALLOW_ADJUST_VOLUME)
+        if (blocked) step("allow volume change") { dpm.clearUserRestriction(admin, UserManager.DISALLOW_ADJUST_VOLUME) }
+        try {
+            // Leaving Do Not Disturb or silent needs "Do Not Disturb access", which a
+            // device-owner app has.
+            step("Do Not Disturb off") {
+                if (notifications.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL) {
+                    notifications.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+                }
             }
-        }
-        step("silent off") {
-            if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) audio.ringerMode = AudioManager.RINGER_MODE_NORMAL
-        }
-        step("unmute") {
-            if (Kiosk.isDeviceOwner(context)) {
-                context.getSystemService(DevicePolicyManager::class.java).setMasterVolumeMuted(Kiosk.admin(context), false)
+            step("silent off") {
+                if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) audio.ringerMode = AudioManager.RINGER_MODE_NORMAL
             }
-        }
-        for (stream in listOf(AudioManager.STREAM_RING, AudioManager.STREAM_VOICE_CALL)) {
-            step("volume $stream") { audio.setStreamVolume(stream, audio.getStreamMaxVolume(stream), 0) }
+            if (muted) step("unmute") { dpm.setMasterVolumeMuted(admin, false) }
+            for (stream in STREAMS) {
+                step("volume $stream") { audio.setStreamVolume(stream, audio.getStreamMaxVolume(stream), 0) }
+            }
+        } finally {
+            if (blocked) step("block volume buttons") { dpm.addUserRestriction(admin, UserManager.DISALLOW_ADJUST_VOLUME) }
         }
     }
 

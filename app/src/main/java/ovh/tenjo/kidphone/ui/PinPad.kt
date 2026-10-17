@@ -51,8 +51,8 @@ import ovh.tenjo.kidphone.data.PinCheck
 import ovh.tenjo.kidphone.data.Store
 import kotlin.math.roundToInt
 
-const val PIN_MIN = 4
-const val PIN_MAX = 8
+/** The parent PIN is always exactly this many digits. */
+const val PIN_LENGTH = 8
 
 /**
  * A big number keypad. Typed digits show as dots, never as numbers. [errorCount] going up makes
@@ -66,6 +66,8 @@ fun PinPad(
     onCancel: (() -> Unit)?,
     subtitle: String? = null,
     errorCount: Int = 0,
+    minLength: Int = PIN_LENGTH,
+    maxLength: Int = PIN_LENGTH,
 ) {
     var pin by remember { mutableStateOf("") }
     val shake = remember { Animatable(0f) }
@@ -121,7 +123,7 @@ fun PinPad(
                     Modifier.offset { IntOffset(shake.value.roundToInt(), 0) },
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    repeat(maxOf(PIN_MIN, pin.length)) { i -> PinDot(filled = i < pin.length, error = message != null && pin.isEmpty()) }
+                    repeat(maxOf(minLength, pin.length)) { i -> PinDot(filled = i < pin.length, error = message != null && pin.isEmpty()) }
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -146,13 +148,13 @@ fun PinPad(
                                         pin = ""
                                         onSubmit(typed)
                                     },
-                                    enabled = pin.length >= PIN_MIN,
+                                    enabled = pin.length >= minLength,
                                     color = Brand,
                                     size = keySize,
                                 ) {
                                     Icon(Icons.Rounded.Check, contentDescription = "OK", tint = Color.White, modifier = Modifier.size(keySize * 0.42f))
                                 }
-                                else -> RoundKey(onClick = { if (pin.length < PIN_MAX) pin += key }, size = keySize) {
+                                else -> RoundKey(onClick = { if (pin.length < maxLength) pin += key }, size = keySize) {
                                     Text(key, fontSize = (keySize.value * 0.38f).sp, fontWeight = FontWeight.Bold, color = Ink)
                                 }
                             }
@@ -211,7 +213,7 @@ fun RoundKey(
     ) { content() }
 }
 
-/** Asks for the parent PIN and calls [onUnlocked] when it is right. */
+/** Asks for the 8-digit parent PIN and calls [onUnlocked] when it is right. */
 @Composable
 fun ParentPinScreen(store: Store, onUnlocked: () -> Unit, onCancel: () -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
@@ -244,15 +246,20 @@ fun ParentPinScreen(store: Store, onUnlocked: () -> Unit, onCancel: () -> Unit) 
 private fun formatWait(seconds: Long): String =
     if (seconds >= 60) "${(seconds + 59) / 60} min" else "$seconds s"
 
-/** Choosing a new PIN: type it, then type it again. */
+/** Choosing a new 8-digit PIN: type it, then type it again. */
 @Composable
-fun NewPinScreen(title: String, onDone: (String) -> Unit, onCancel: (() -> Unit)?) {
+fun NewPinScreen(
+    title: String,
+    onDone: (String) -> Unit,
+    onCancel: (() -> Unit)?,
+    subtitle: String = "$PIN_LENGTH digits. Only parents should know it.",
+) {
     var first by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var errors by remember { mutableIntStateOf(0) }
     PinPad(
         title = if (first == null) title else "Type it again",
-        subtitle = if (first == null) "$PIN_MIN to $PIN_MAX digits. Only parents should know it." else "To make sure it's right.",
+        subtitle = if (first == null) subtitle else "To make sure it's right.",
         message = message,
         errorCount = errors,
         onCancel = onCancel,

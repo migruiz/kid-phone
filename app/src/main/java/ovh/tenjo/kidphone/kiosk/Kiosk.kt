@@ -37,6 +37,7 @@ object Kiosk {
         UserManager.DISALLOW_SAFE_BOOT,
         UserManager.DISALLOW_FACTORY_RESET,
         UserManager.DISALLOW_ADD_USER,
+        UserManager.DISALLOW_ADJUST_VOLUME, // volume buttons do nothing; ring and calls stay at 100%
     )
 
     private val SELF_GRANTED = buildList {
