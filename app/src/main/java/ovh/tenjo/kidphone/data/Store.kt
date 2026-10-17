@@ -102,6 +102,13 @@ class Store private constructor(context: Context) {
         return allowedNumbers().any { PhoneNumbers.same(it, number) }
     }
 
+    /**
+     * Whether the child may ring this number while the phone is locked: only the call buttons.
+     * Other apps the parents allow could try to dial anyone; those calls are hung up.
+     */
+    fun mayCall(number: String?): Boolean =
+        _contacts.value.any { it.isSet && PhoneNumbers.same(it.number, number) }
+
     /** Who a number belongs to: their call button, or an allowed caller (no colour or picture). */
     fun lookup(number: String?): Contact? {
         _contacts.value.firstOrNull { it.isSet && PhoneNumbers.same(it.number, number) }?.let { return it }

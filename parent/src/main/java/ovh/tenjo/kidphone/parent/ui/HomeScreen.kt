@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,6 +73,8 @@ fun HomeScreen() {
         }
     }
 
+    // Switches flipped here show at once, before the hub confirms.
+    val pending = remember { mutableStateMapOf<String, Boolean>() }
     var confirmReplace by remember { mutableStateOf(false) }
     var confirmUnpair by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<String?>(null) }
@@ -80,6 +83,27 @@ fun HomeScreen() {
     ParentPage {
         ScreenHeader("$childName's phone", onBack = null)
         ChildCard(state?.child, error)
+
+        state?.let { st ->
+            Spacer(Modifier.height(20.dp))
+            SectionLabel("Apps")
+            Text(
+                "Apps switched on here appear when $childName taps Apps. They only open on the home Wi-Fi.",
+                color = Muted, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
+            )
+            AppsGroup(
+                apps = st.apps.map { a -> pending[a.packageName]?.let { a.copy(allowed = it) } ?: a },
+                onToggle = { app, on ->
+                    pending[app.packageName] = on
+                    scope.launch {
+                        runCatching { Hub.setAllowed(app.packageName, on) }
+                            .onSuccess { runCatching { Hub.state() }.onSuccess { state = it } }
+                            .onFailure { info = "Couldn't change ${app.label}. Check the internet connection and try again." }
+                        pending.remove(app.packageName)
+                    }
+                },
+            )
+        }
 
         Spacer(Modifier.height(20.dp))
         SectionLabel("This app")

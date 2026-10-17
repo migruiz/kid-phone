@@ -22,7 +22,8 @@ import ovh.tenjo.kidphone.data.Store
  *
  * Locking uses Android's "lock task" mode, which only a device-owner app can start without the
  * user being able to leave it. While locked:
- *  - only this app can run: no home, no recent apps, no other app can open on top;
+ *  - only this app and the apps the parents allow (see [setAllowedApps]) can run; no recent apps.
+ *    The Home button always leads back to the kid screen;
  *  - the notification shade and quick settings (Wi-Fi, Bluetooth, airplane mode...) are disabled;
  *    the status bar still shows the clock, signal and battery;
  *  - the power-button menu is off, so the phone can't be switched off from it;
@@ -53,6 +54,28 @@ object Kiosk {
     }
 
     fun admin(context: Context) = ComponentName(context, AdminReceiver::class.java)
+
+    /** The parents' allowed apps that may run now (at home). Kept so locking again includes them. */
+    @Volatile
+    private var allowedApps: Set<String> = emptySet()
+
+    /**
+     * Lets the apps the parents allow run in kid mode, and only those. An app taken off the list
+     * while it is open is closed by Android, and the kid screen comes back.
+     */
+    fun setAllowedApps(context: Context, packages: Set<String>) {
+        val removed = allowedApps - packages
+        allowedApps = packages
+        if (!isDeviceOwner(context) || !Store.get(context).locked) return
+        step("allow lock task") { dpm(context).setLockTaskPackages(admin(context), lockTaskPackages(context)) }
+        if (removed.isNotEmpty()) {
+            Log.i(TAG, "Apps no longer allowed now: $removed")
+            runCatching { context.startActivity(homeIntent()) }
+        }
+    }
+
+    private fun lockTaskPackages(context: Context): Array<String> =
+        (setOf(context.packageName) + allowedApps).toTypedArray()
 
     private fun dpm(context: Context) = context.getSystemService(DevicePolicyManager::class.java)
     private fun telecom(context: Context) = context.getSystemService(TelecomManager::class.java)
@@ -95,9 +118,14 @@ object Kiosk {
         Store.get(context).locked = true
         val dpm = dpm(context)
         val admin = admin(context)
-        step("allow lock task") { dpm.setLockTaskPackages(admin, arrayOf(context.packageName)) }
+        step("allow lock task") { dpm.setLockTaskPackages(admin, lockTaskPackages(context)) }
         step("lock task features") {
-            dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_SYSTEM_INFO)
+            // The Home button goes to the kid screen (this app is the home screen while locked),
+            // so the child can always get back from an allowed app.
+            dpm.setLockTaskFeatures(
+                admin,
+                DevicePolicyManager.LOCK_TASK_FEATURE_SYSTEM_INFO or DevicePolicyManager.LOCK_TASK_FEATURE_HOME,
+            )
         }
         step("home screen") {
             context.packageManager.setComponentEnabledSetting(

@@ -30,6 +30,15 @@ An Android app that turns a phone into a child's phone.
   (`hub/`). The parents' phones run **Kid Phone Parent** (`parent/`), which pairs with the hub once
   using a code shown on the child's phone and reaches it from anywhere. While kid mode is on, a
   banner shows when the phone is **not on the home Wi-Fi** (it can't reach the hub).
+- **Apps the parents allow.** Kid Phone sends the list of apps on the phone (with icons) to the
+  hub; each parent switches apps on or off in Kid Phone Parent, which flags apps that can message
+  or call people, open any website, or show any YouTube video. The **Apps** button on the kid screen
+  shows only the switched-on apps; the Home button always comes back to the kid screen. Apps only
+  open on the home Wi-Fi: about a minute after the phone leaves it, an open app closes. An app
+  switched off while open closes within seconds. Settings, the Play Store and the phone's own Phone
+  app are never offered.
+- **Calls going out only to the call buttons.** In kid mode any outgoing call that isn't to a call
+  button (or an emergency number) is hung up at once, whichever app started it.
 - **Updates itself.** Both apps install new versions from this repository's GitHub releases. Kid
   Phone does it silently, only while the screen is off and no call is going on.
 

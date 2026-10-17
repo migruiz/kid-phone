@@ -15,6 +15,14 @@
     <!-- To switch off silent mode and Do Not Disturb in kid mode. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
+    <!-- To list and open the apps the parents can allow (Android 11+ hides other apps otherwise). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <!--
         testOnly is true in debug builds only (see app/build.gradle.kts): a test-only device owner
         can be removed from a computer with "adb shell dpm remove-active-admin", and needs

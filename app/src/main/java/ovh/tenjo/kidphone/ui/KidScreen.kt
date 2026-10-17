@@ -4,6 +4,7 @@ import android.app.Activity
 import android.telephony.PhoneNumberUtils
 import android.telephony.TelephonyManager
 import android.text.format.DateFormat
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Lock
@@ -68,25 +70,14 @@ import java.time.format.DateTimeFormatter
 val NightTop = Color(0xFF161C36)
 val NightBottom = Color(0xFF0A0E1C)
 
-/**
- * What the child sees: "Hi <name>" and the time, the battery, one wide row per person he can call
- * (picture, name and a big green call button), and a small padlock for parents.
- */
+/** The Apps button on the kid screen: hidden until the hub is set up, dimmed away from home. */
+enum class AppsButton { Hidden, Ready, AwayFromHome }
+
+/** The dark night-sky background of the kid screens, with two soft coloured glows. */
 @Composable
-fun KidScreen(
-    contacts: List<Contact>,
-    childName: String,
-    warning: String?,
-    notice: String?,
-    onCall: (Contact) -> Unit,
-    onParent: () -> Unit,
-) {
+fun KidBackground(content: @Composable () -> Unit) {
     LightSystemBarIcons()
-    val people = contacts.filter { it.isSet }
-    val now = rememberNow()
-    val battery = rememberBattery()
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(NightTop, NightBottom)))) {
-        // Two soft coloured glows behind everything.
         Canvas(Modifier.fillMaxSize()) {
             val r = size.width * 0.9f
             drawCircle(
@@ -99,6 +90,54 @@ fun KidScreen(
                 radius = r, center = corner,
             )
         }
+        content()
+    }
+}
+
+/** A round see-through button for the kid screen's top line. */
+@Composable
+fun RoundTopButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    bright: Boolean,
+    size: Dp = 42.dp,
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = Color.White.copy(alpha = if (bright) 0.16f else 0.08f),
+        modifier = Modifier.size(size).border(1.dp, Color.White.copy(alpha = if (bright) 0.25f else 0.12f), CircleShape),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                icon, contentDescription = description,
+                tint = Color.White.copy(alpha = if (bright) 0.95f else 0.45f),
+                modifier = Modifier.size(size * 0.48f),
+            )
+        }
+    }
+}
+
+/**
+ * What the child sees: "Hi <name>" and the time, the battery, one wide row per person he can call
+ * (picture, name and a big green call button), the Apps button, and a small padlock for parents.
+ */
+@Composable
+fun KidScreen(
+    contacts: List<Contact>,
+    childName: String,
+    warning: String?,
+    notice: String?,
+    apps: AppsButton,
+    onApps: () -> Unit,
+    onCall: (Contact) -> Unit,
+    onParent: () -> Unit,
+) {
+    val people = contacts.filter { it.isSet }
+    val now = rememberNow()
+    val context = LocalContext.current
+    KidBackground {
         Column(
             Modifier
                 .fillMaxSize()
@@ -113,17 +152,21 @@ fun KidScreen(
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(10.dp))
-                Surface(
-                    onClick = onParent,
-                    shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.08f),
-                    modifier = Modifier.size(42.dp).border(1.dp, Color.White.copy(alpha = 0.12f), CircleShape),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Lock, contentDescription = "Parents", tint = Color.White.copy(alpha = 0.45f), modifier = Modifier.size(19.dp))
-                    }
+                if (apps != AppsButton.Hidden) {
+                    Spacer(Modifier.width(10.dp))
+                    RoundTopButton(
+                        Icons.Rounded.Apps, "Apps", bright = apps == AppsButton.Ready, size = 46.dp,
+                        onClick = {
+                            if (apps == AppsButton.Ready) {
+                                onApps()
+                            } else {
+                                Toast.makeText(context, "Apps only work at home, on the home Wi-Fi.", Toast.LENGTH_LONG).show()
+                            }
+                        },
+                    )
                 }
+                Spacer(Modifier.width(10.dp))
+                RoundTopButton(Icons.Rounded.Lock, "Parents", onClick = onParent, bright = false)
             }
             // Second line: the clock, with the battery at the end.
             Row(verticalAlignment = Alignment.CenterVertically) {

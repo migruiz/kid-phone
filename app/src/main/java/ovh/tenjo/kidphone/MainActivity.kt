@@ -33,6 +33,8 @@ import ovh.tenjo.kidphone.hub.Hub
 import ovh.tenjo.kidphone.kiosk.Kiosk
 import ovh.tenjo.kidphone.kiosk.Loudness
 import ovh.tenjo.kidphone.ui.AllowedEditor
+import ovh.tenjo.kidphone.ui.AppsButton
+import ovh.tenjo.kidphone.ui.AppsScreen
 import ovh.tenjo.kidphone.ui.ContactsEditor
 import ovh.tenjo.kidphone.ui.DialerSetupScreen
 import ovh.tenjo.kidphone.ui.HubScreen
@@ -45,7 +47,7 @@ import ovh.tenjo.kidphone.ui.ParentPinScreen
 import ovh.tenjo.kidphone.ui.ReadyScreen
 import ovh.tenjo.kidphone.ui.hubSummary
 
-private enum class Screen { Kid, Pin, Parent, Contacts, Allowed, ChangePin, Hub }
+private enum class Screen { Kid, Apps, Pin, Parent, Contacts, Allowed, ChangePin, Hub }
 
 /**
  * The kid screen as the phone's home screen. Kid mode always runs here; it is switched on as the
@@ -212,6 +214,8 @@ open class MainActivity : ComponentActivity() {
         val allowed by store.allowed.collectAsState()
         val childName by store.childName.collectAsState()
         val home by Hub.status.collectAsState()
+        val allowedApps by Hub.allowed.collectAsState()
+        val appsAvailable by Hub.appsAvailable.collectAsState()
         when {
             !owner -> NotOwnerScreen(packageName, onCheckAgain = { refresh(); maybeLock() })
 
@@ -247,9 +251,20 @@ open class MainActivity : ComponentActivity() {
                             else -> null
                         },
                         notice = if (home == HomeStatus.Away) "Not on the home Wi-Fi" else null,
+                        apps = when {
+                            home == HomeStatus.NotSetUp -> AppsButton.Hidden
+                            appsAvailable -> AppsButton.Ready
+                            else -> AppsButton.AwayFromHome
+                        },
+                        onApps = { screen = Screen.Apps },
                         onCall = ::call,
                         onParent = { screen = Screen.Pin },
                     )
+                    Screen.Apps -> if (appsAvailable) {
+                        AppsScreen(allowed = allowedApps, onBack = { screen = Screen.Kid })
+                    } else {
+                        LaunchedEffect(Unit) { screen = Screen.Kid } // left home while it was open
+                    }
                     Screen.Pin -> ParentPinScreen(
                         store,
                         onUnlocked = { screen = Screen.Parent },

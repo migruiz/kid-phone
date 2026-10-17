@@ -107,7 +107,7 @@ fun ParentMenu(
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("Kid mode is on", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0B5D33))
-                    Text("Only the call buttons work.", fontSize = 15.sp, color = Color(0xFF2F7A52))
+                    Text("Only the call buttons and the allowed apps work.", fontSize = 15.sp, color = Color(0xFF2F7A52))
                 }
             }
         }

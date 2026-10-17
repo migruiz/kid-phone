@@ -10,6 +10,7 @@ import android.os.Build
 import android.telecom.Call
 import android.telecom.CallAudioState
 import android.telecom.InCallService
+import android.telephony.TelephonyManager
 import android.util.Log
 import ovh.tenjo.kidphone.R
 import ovh.tenjo.kidphone.data.Store
@@ -36,6 +37,20 @@ class CallService : InCallService() {
             // Keep it simple: no call waiting. A second caller gets the busy signal.
             if (CallManager.hasCalls) {
                 reject(call)
+                return
+            }
+        }
+        // Kid mode: calls going out may only be to a call button (or an emergency number), whichever
+        // app started them. Kid Phone's own buttons always pass; another allowed app can't dial anyone.
+        val outgoing = call.details.callDirection == Call.Details.DIRECTION_OUTGOING
+        if (outgoing && Store.get(this).locked) {
+            val number = CallManager.numberOf(call)
+            val emergency = runCatching {
+                number != null && getSystemService(TelephonyManager::class.java).isEmergencyNumber(number)
+            }.getOrDefault(false)
+            if (!emergency && !Store.get(this).mayCall(number)) {
+                Log.i(TAG, "Hung up a call to ${number ?: "an unknown number"}: not a call button")
+                call.disconnect()
                 return
             }
         }
