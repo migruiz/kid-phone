@@ -26,6 +26,28 @@ An Android app that turns a phone into a child's phone.
   PIN, change the name on screen. Five wrong PINs in a row make it wait a minute, then longer.
 - **Opening the app always locks the phone again.**
 - Warnings on screen when there is **no SIM card**, or when Kid Phone is no longer the phone app.
+- **Home hub and parent app.** Kid Phone connects to a small service on the home Raspberry Pi
+  (`hub/`). The parents' phones run **Kid Phone Parent** (`parent/`), which pairs with the hub once
+  using a code shown on the child's phone and reaches it from anywhere. While kid mode is on, a
+  banner shows when the phone is **not on the home Wi-Fi** (it can't reach the hub).
+- **Updates itself.** Both apps install new versions from this repository's GitHub releases. Kid
+  Phone does it silently, only while the screen is off and no call is going on.
+
+## The three parts
+
+| Part | Where it runs | Folder |
+|------|---------------|--------|
+| Kid Phone | the child's phone | `app/` |
+| Kid Phone Parent | each parent's phone | `parent/` |
+| Home hub | the home Raspberry Pi, as a Portainer stack | `hub/` (see `hub/README.md` and `hub/API.md`) |
+
+`shared/` holds what both apps use: the look, self-updating and the hub connection helpers.
+
+The child's phone reaches the hub only on the home network (`http://192.168.0.11:8774`), so being
+able to reach it is how Kid Phone knows it is at home. The parents' phones use
+`https://kidphone.tenjotech.com`, which the Pi's Cloudflare tunnel forwards to the hub's parent port
+(8775). Alerts to the parents' phones go through Firebase Cloud Messaging (Google project
+`kidphone-tenjo`).
 
 ## How it works
 
@@ -64,11 +86,39 @@ Needs Android 10 or later. Tested on a Xiaomi Mi A2 Lite (Android 10) and the An
    buttons, make it the phone app (on Android 10–13 tap *Set as default*), start kid mode.
 6. Put the child's SIM card in.
 
+## Releases and updates
+
+Both apps carry the same version (`appVersionName` in `gradle.properties`; 1.2.3 becomes version
+code 10203). To publish a new version:
+
+```
+# set appVersionName=1.2.0 in gradle.properties, commit, then
+git tag v1.2.0
+git push origin main v1.2.0
+```
+
+GitHub Actions (`.github/workflows/release.yml`) builds both apps, checks they are signed with the
+Kid Phone key, and publishes a release with `kid-phone.apk` and `kid-phone-parent.apk`. The apps
+check `releases/latest`:
+
+- **Kid Phone** checks every hour on Wi-Fi, downloads a newer version, and installs it the next
+  time the screen is off and no call is going on (or at once from *padlock → Version*). As device
+  owner it needs no confirmation. Installing restarts it and kid mode comes straight back.
+- **Kid Phone Parent** checks every 6 hours and when *Version* is tapped. Android asks "Update?" the
+  first time; from Android 12 on, later updates install by themselves.
+
+The workflow needs two repository secrets: `SIGNING_KEYSTORE_BASE64` (this PC's
+`%USERPROFILE%\.android\debug.keystore`, base64) and `PARENT_GOOGLE_SERVICES_JSON_BASE64` (the
+parent app's Firebase config, base64; locally it is `parent/google-services.json`, not in git).
+
+Release builds are normal apps; debug builds are marked test-only (see "Getting out" below).
+
 ## Building
 
 ```
-gradlew.bat assembleRelease      # app\build\outputs\apk\release\app-release.apk (small, for the phone)
-gradlew.bat assembleDebug        # app\build\outputs\apk\debug\app-debug.apk
+gradlew.bat :app:assembleRelease     # app\build\outputs\apk\release\app-release.apk (small, for the phone)
+gradlew.bat :parent:assembleRelease  # parent\build\outputs\apk\release\parent-release.apk
+gradlew.bat assembleDebug            # debug builds of both
 gradlew.bat testDebugUnitTest
 ```
 
@@ -84,8 +134,9 @@ after the update.
 
 - Normal way: padlock → PIN → *Unlock phone*.
 - Uninstalling: padlock → PIN → *Remove Kid Phone from this phone…*, then uninstall it like any app.
-- From a computer (the app is marked test-only for this reason):
-  `adb shell dpm remove-active-admin ovh.tenjo.kidphone/.kiosk.AdminReceiver`
+- From a computer, only while a **debug** build is installed (debug builds are test-only for this
+  reason): `adb shell dpm remove-active-admin ovh.tenjo.kidphone/.kiosk.AdminReceiver`. Release
+  builds, which is what updates install, can't be removed this way: use the padlock menu.
 - Last resort: factory reset from the recovery menu (power + volume buttons while the phone starts).
 
 ## Not included yet

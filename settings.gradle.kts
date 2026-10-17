@@ -20,4 +20,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Kid Phone"
-include(":app")
+include(":app")     // Kid Phone, on the child's phone
+include(":parent")  // Kid Phone Parent, on the parents' phones
+include(":shared")  // the look, self-updating and hub calls both apps use

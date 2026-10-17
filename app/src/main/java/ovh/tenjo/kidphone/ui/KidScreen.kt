@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -76,6 +77,7 @@ fun KidScreen(
     contacts: List<Contact>,
     childName: String,
     warning: String?,
+    notice: String?,
     onCall: (Contact) -> Unit,
     onParent: () -> Unit,
 ) {
@@ -144,6 +146,21 @@ fun KidScreen(
                     Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = Color(0xFFFF9B9B))
                     Spacer(Modifier.width(10.dp))
                     Text(warning, color = Color(0xFFFFC2C2), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+            if (notice != null) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0x33F59E0B))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.WifiOff, contentDescription = null, tint = Color(0xFFFFD27A))
+                    Spacer(Modifier.width(10.dp))
+                    Text(notice, color = Color(0xFFFFE2A8), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
             Spacer(Modifier.height(20.dp))

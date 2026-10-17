@@ -13,14 +13,22 @@ android {
         applicationId = "ovh.tenjo.kidphone"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = rootProject.extra["appVersionCode"] as Int
+        versionName = rootProject.extra["appVersionName"] as String
     }
 
     buildTypes {
+        debug {
+            // A test-only device owner can be removed from a computer ("adb shell dpm
+            // remove-active-admin"), which is handy while developing.
+            manifestPlaceholders["testOnly"] = "true"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // Releases update themselves from GitHub, and Android refuses to install a test-only
+            // app that way, so release builds are normal apps.
+            manifestPlaceholders["testOnly"] = "false"
             // Sideloaded, never published. Signed with the same key as the debug build so either
             // installs over the other. A device-owner app can only be updated with the same key.
             signingConfig = signingConfigs.getByName("debug")
@@ -37,15 +45,7 @@ android {
 }
 
 dependencies {
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(project(":shared"))
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
 }

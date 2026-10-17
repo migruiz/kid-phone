@@ -28,11 +28,14 @@ import kotlinx.coroutines.delay
 import ovh.tenjo.kidphone.call.CallManager
 import ovh.tenjo.kidphone.data.Contact
 import ovh.tenjo.kidphone.data.Store
+import ovh.tenjo.kidphone.hub.HomeStatus
+import ovh.tenjo.kidphone.hub.Hub
 import ovh.tenjo.kidphone.kiosk.Kiosk
 import ovh.tenjo.kidphone.kiosk.Loudness
 import ovh.tenjo.kidphone.ui.AllowedEditor
 import ovh.tenjo.kidphone.ui.ContactsEditor
 import ovh.tenjo.kidphone.ui.DialerSetupScreen
+import ovh.tenjo.kidphone.ui.HubScreen
 import ovh.tenjo.kidphone.ui.KidScreen
 import ovh.tenjo.kidphone.ui.KidTheme
 import ovh.tenjo.kidphone.ui.NewPinScreen
@@ -40,8 +43,9 @@ import ovh.tenjo.kidphone.ui.NotOwnerScreen
 import ovh.tenjo.kidphone.ui.ParentMenu
 import ovh.tenjo.kidphone.ui.ParentPinScreen
 import ovh.tenjo.kidphone.ui.ReadyScreen
+import ovh.tenjo.kidphone.ui.hubSummary
 
-private enum class Screen { Kid, Pin, Parent, Contacts, Allowed, ChangePin }
+private enum class Screen { Kid, Pin, Parent, Contacts, Allowed, ChangePin, Hub }
 
 /**
  * The kid screen as the phone's home screen. Kid mode always runs here; it is switched on as the
@@ -86,7 +90,7 @@ open class MainActivity : ComponentActivity() {
         )
         onBackPressedDispatcher.addCallback(this) {
             screen = when (screen) {
-                Screen.Contacts, Screen.Allowed, Screen.ChangePin -> Screen.Parent
+                Screen.Contacts, Screen.Allowed, Screen.ChangePin, Screen.Hub -> Screen.Parent
                 else -> Screen.Kid
             }
         }
@@ -207,6 +211,7 @@ open class MainActivity : ComponentActivity() {
         val contacts by store.contacts.collectAsState()
         val allowed by store.allowed.collectAsState()
         val childName by store.childName.collectAsState()
+        val home by Hub.status.collectAsState()
         when {
             !owner -> NotOwnerScreen(packageName, onCheckAgain = { refresh(); maybeLock() })
 
@@ -241,6 +246,7 @@ open class MainActivity : ComponentActivity() {
                             !simReady -> "No SIM card. Calls won't work."
                             else -> null
                         },
+                        notice = if (home == HomeStatus.Away) "Not on the home Wi-Fi" else null,
                         onCall = ::call,
                         onParent = { screen = Screen.Pin },
                     )
@@ -262,6 +268,8 @@ open class MainActivity : ComponentActivity() {
                         onUnlock = ::unlockAndLeave,
                         onContacts = { screen = Screen.Contacts },
                         onAllowed = { screen = Screen.Allowed },
+                        hubSummary = hubSummary(home),
+                        onHub = { screen = Screen.Hub },
                         onChangePin = { screen = Screen.ChangePin },
                         childName = childName,
                         onChildName = store::saveChildName,
@@ -284,6 +292,7 @@ open class MainActivity : ComponentActivity() {
                         onSave = store::saveAllowed,
                         onBack = { screen = Screen.Parent },
                     )
+                    Screen.Hub -> HubScreen(childName = childName, onBack = { screen = Screen.Parent })
                     Screen.ChangePin -> NewPinScreen(
                         title = "New parent PIN",
                         onDone = { store.setPin(it); screen = Screen.Parent },

@@ -1,0 +1,21 @@
+# Portainer stack for the Kid Phone hub on the Raspberry Pi.
+services:
+  kidphone-hub:
+    image: migruiz/kidphone-hub:latest
+    container_name: kidphone-hub
+    restart: unless-stopped
+    ports:
+      # The kid port is published on IPv4 only. Docker otherwise also listens on the Pi's IPv6
+      # addresses and forwards that traffic from a private Docker address, which would get past the
+      # hub's "home network only" check if the router ever let inbound IPv6 through.
+      - "0.0.0.0:8774:8774"
+      - "8775:8775"
+    volumes:
+      - /home/pi/kidphone:/data
+    environment:
+      - TZ=Europe/Dublin
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "3"

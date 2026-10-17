@@ -1,0 +1,14 @@
+{
+  "name": "kidphone-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Home hub between Kid Phone and Kid Phone Parent",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  }
+}

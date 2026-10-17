@@ -47,7 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import ovh.tenjo.kidphone.R
+import ovh.tenjo.kidphone.shared.R
 
 // ---- Type ----
 

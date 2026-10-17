@@ -1,0 +1,5 @@
+# Local runs (DATA_DIR=./tmp) hold token hashes and maybe a Firebase key: never commit them.
+tmp/
+data/
+secrets/
+node_modules/

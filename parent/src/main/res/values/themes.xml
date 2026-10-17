@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="page_background">#FFF8F9FD</color>
+    <color name="icon_background">#FF7442EA</color>
+
+    <style name="Theme.KidPhoneParent" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/page_background</item>
+    </style>
+</resources>

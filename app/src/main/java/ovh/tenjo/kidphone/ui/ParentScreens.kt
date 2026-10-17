@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PhoneInTalk
 import androidx.compose.material.icons.rounded.RocketLaunch
+import androidx.compose.material.icons.rounded.Router
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -76,71 +77,14 @@ import ovh.tenjo.kidphone.data.PhoneNumbers
 /** Pictures a call button can have. The first one ("") means the first letter of the name. */
 private val EmojiChoices = listOf("", "👩", "👨", "👵", "👴", "👧", "👦", "🧑", "👶", "🐶", "🐱", "⭐", "❤️", "🏠")
 
-/** A scrolling page with the standard background and padding, used by every parent screen. */
-@Composable
-fun ParentPage(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(PageBrush)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        content = content,
-    )
-}
-
-/** A white rounded card that groups related rows. */
-@Composable
-private fun Group(content: @Composable ColumnScope.() -> Unit) {
-    Surface(shape = RoundedCornerShape(24.dp), color = Color.White, shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(content = content)
-    }
-}
-
-@Composable
-private fun SettingsRow(icon: ImageVector, tint: Color, title: String, subtitle: String?, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = Color.Transparent) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconBadge(icon, tint)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
-                if (!subtitle.isNullOrBlank()) {
-                    Text(subtitle, fontSize = 14.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = Color(0xFFB4BAC8))
-        }
-    }
-}
-
-@Composable
-private fun IconBadge(icon: ImageVector, tint: Color, size: Int = 42) {
-    Box(
-        Modifier.size(size.dp).background(tint.copy(alpha = 0.14f), RoundedCornerShape((size * 0.32f).dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size((size * 0.55f).dp))
-    }
-}
-
-@Composable
-private fun RowDivider() = HorizontalDivider(Modifier.padding(start = 72.dp), color = Hairline)
-
-@Composable
-private fun fieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = Color.White,
-    unfocusedContainerColor = Color(0xFFF7F8FB),
-    unfocusedBorderColor = Hairline,
-)
-
 @Composable
 fun ParentMenu(
     isDialer: Boolean,
     hasSim: Boolean,
     buttonsSummary: String,
     allowedSummary: String,
+    hubSummary: String,
+    onHub: () -> Unit,
     onUnlock: () -> Unit,
     onContacts: () -> Unit,
     onAllowed: () -> Unit,
@@ -223,6 +167,10 @@ fun ParentMenu(
                 Icons.Rounded.WavingHand, Color(0xFFF2760B), "Name on screen",
                 if (childName.isBlank()) "Not set" else "Hi $childName", onClick = { editName = true },
             )
+            RowDivider()
+            SettingsRow(Icons.Rounded.Router, Brand, "Home hub", hubSummary, onHub)
+            RowDivider()
+            UpdatesRow(waiting = "goes in when the screen is off")
         }
         Spacer(Modifier.height(16.dp))
         BigButton(

@@ -1,0 +1,5 @@
+# Only package.json and src/ go into the image.
+*
+!package.json
+!src/
+!src/**

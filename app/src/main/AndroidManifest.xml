@@ -16,17 +16,20 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <!--
-        testOnly keeps a way back while this is being developed: a test-only device owner can be
-        removed from a computer with "adb shell dpm remove-active-admin". It also means the APK
-        has to be installed with "adb install -t".
+        testOnly is true in debug builds only (see app/build.gradle.kts): a test-only device owner
+        can be removed from a computer with "adb shell dpm remove-active-admin", and needs
+        "adb install -t". Release builds update themselves, which Android refuses for test-only apps.
+        Cleartext is for the home hub on the local network (http://192.168.0.11:8774).
     -->
     <application
+        android:name=".KidPhoneApp"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:testOnly="true"
+        android:testOnly="${testOnly}"
         android:theme="@style/Theme.KidPhone"
         tools:ignore="HardcodedDebugMode">
 
