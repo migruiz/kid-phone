@@ -40,35 +40,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ovh.tenjo.kidphone.parent.Hub
 import ovh.tenjo.kidphone.parent.KidApp
-import ovh.tenjo.kidphone.ui.CallGreen
+import ovh.tenjo.kidphone.ui.AppSwitchRow
 import ovh.tenjo.kidphone.ui.Group
 import ovh.tenjo.kidphone.ui.Hairline
 import ovh.tenjo.kidphone.ui.Ink
 import ovh.tenjo.kidphone.ui.Muted
 import java.net.HttpURLConnection
 import java.net.URL
-
-/**
- * Apps worth a second look before switching them on. The phone can't see what happens inside an
- * app, so an app with calls or chat lets the child talk to anyone, "ask first" or not.
- */
-private val Warnings: Map<String, String> = buildMap {
-    val talk = "Can message or call people"
-    listOf(
-        "com.whatsapp", "org.telegram.messenger", "com.facebook.orca", "com.facebook.katana",
-        "com.instagram.android", "com.snapchat.android", "com.discord", "com.google.android.apps.messaging",
-        "com.android.mms", "com.samsung.android.messaging", "com.roblox.client", "com.google.android.gm",
-        "com.google.android.apps.tachyon", "com.skype.raider", "com.zhiliaoapp.musically",
-        "ovh.tenjo.agentphone", "com.google.android.apps.dynamite",
-    ).forEach { put(it, talk) }
-    val web = "Opens any website"
-    listOf(
-        "com.android.chrome", "org.mozilla.firefox", "com.google.android.googlequicksearchbox",
-        "com.sec.android.app.sbrowser", "com.opera.browser", "com.microsoft.emmx", "com.brave.browser",
-        "com.duckduckgo.mobile.android",
-    ).forEach { put(it, web) }
-    put("com.google.android.youtube", "Any YouTube video (this isn't YouTube Kids)")
-}
 
 /** The apps on the child's phone, each with a switch. */
 @Composable
@@ -90,33 +68,11 @@ fun AppsGroup(apps: List<KidApp>, onToggle: (KidApp, Boolean) -> Unit) {
 }
 
 @Composable
-private fun AppRow(app: KidApp, onToggle: (KidApp, Boolean) -> Unit) {
-    val warning = Warnings[app.packageName]
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AppIcon(app)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(app.label, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            when {
-                !app.installed -> Text("No longer on the phone", fontSize = 13.sp, color = Muted)
-                warning != null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = Color(0xFFB45309), modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(warning, fontSize = 13.sp, color = Color(0xFF92400E), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        Switch(
-            checked = app.allowed,
-            onCheckedChange = { onToggle(app, it) },
-            colors = SwitchDefaults.colors(checkedTrackColor = CallGreen),
-        )
-    }
-}
+private fun AppRow(app: KidApp, onToggle: (KidApp, Boolean) -> Unit) =
+    AppSwitchRow(
+        packageName = app.packageName, label = app.label, installed = app.installed, allowed = app.allowed,
+        icon = { AppIcon(app) }, onToggle = { onToggle(app, it) },
+    )
 
 /** The app's icon, fetched from the hub (it needs this phone's pairing token) and kept in memory. */
 @Composable
@@ -125,16 +81,11 @@ private fun AppIcon(app: KidApp) {
     if (bitmap == null && app.hasIcon) {
         LaunchedEffect(app.packageName) { bitmap = IconCache.load(app.packageName) }
     }
-    Box(
-        Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFF2F4F8)),
-        contentAlignment = Alignment.Center,
-    ) {
-        val b = bitmap
-        if (b != null) {
-            Image(b, contentDescription = null, modifier = Modifier.size(42.dp))
-        } else {
-            Icon(Icons.Rounded.Android, contentDescription = null, tint = Muted)
-        }
+    val b = bitmap
+    if (b != null) {
+        Image(b, contentDescription = null, modifier = Modifier.size(42.dp))
+    } else {
+        Icon(Icons.Rounded.Android, contentDescription = null, tint = Muted)
     }
 }
 

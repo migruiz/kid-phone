@@ -182,6 +182,26 @@ object Hub {
         request
     }
 
+    /**
+     * A parent switched an app on or off in Kid Phone's parent menu. Goes through the hub, so the
+     * parent app shows the same; needs the home Wi-Fi. Throws with a readable message.
+     */
+    suspend fun setAllowed(packageName: String, allowed: Boolean) = withContext(Dispatchers.IO) {
+        try {
+            Http.put(url("/kid/apps/$packageName"), JSONObject().put("allowed", allowed), token, timeoutMs = 8_000)
+        } catch (e: HttpError) {
+            poke() // most likely an app the hub hasn't heard of yet
+            throw IllegalStateException(
+                if (e.status == 404) "The hub doesn't know this app yet. Try again in a minute." else (e.message ?: "The hub said no")
+            )
+        } catch (e: java.io.IOException) {
+            throw IllegalStateException("Couldn't reach the hub. Changing apps needs the home Wi-Fi.")
+        }
+        val updated = if (allowed) _allowed.value + packageName else _allowed.value - packageName
+        _allowed.value = updated
+        prefs.edit().putStringSet(KEY_ALLOWED, updated).apply()
+    }
+
     /** Stops waiting for an answer. */
     suspend fun cancel(requestId: String) = withContext(Dispatchers.IO) {
         runCatching { Http.post(url("/kid/requests/$requestId/cancel"), token = token, timeoutMs = 8_000) }

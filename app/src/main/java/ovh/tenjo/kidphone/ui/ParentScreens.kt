@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.AppSettingsAlt
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChildCare
 import androidx.compose.material.icons.rounded.Close
@@ -87,6 +88,8 @@ fun ParentMenu(
     allowedSummary: String,
     hubSummary: String,
     onHub: () -> Unit,
+    appsSummary: String,
+    onApps: () -> Unit,
     onUnlock: () -> Unit,
     onContacts: () -> Unit,
     onAllowed: () -> Unit,
@@ -162,6 +165,8 @@ fun ParentMenu(
             SettingsRow(Icons.Rounded.Contacts, Color(0xFFE23670), "Call buttons", buttonsSummary, onContacts)
             RowDivider()
             SettingsRow(Icons.Rounded.VerifiedUser, Color(0xFF10A36C), "Who can ring this phone", allowedSummary, onAllowed)
+            RowDivider()
+            SettingsRow(Icons.Rounded.Apps, Color(0xFF0A9488), "Apps he can open", appsSummary, onApps)
             RowDivider()
             SettingsRow(Icons.Rounded.Password, Color(0xFF7442EA), "Change PIN", null, onChangePin)
             RowDivider()

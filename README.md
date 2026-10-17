@@ -36,7 +36,9 @@ An Android app that turns a phone into a child's phone.
   shows only the switched-on apps; the Home button always comes back to the kid screen. Apps only
   open on the home Wi-Fi: about a minute after the phone leaves it, an open app closes. An app
   switched off while open closes within seconds. Settings, the Play Store and the phone's own Phone
-  app are never offered.
+  app are never offered. The same list with switches is also on the child's phone itself, behind
+  the PIN (padlock → *Apps he can open*); it changes the same switches through the hub, so it needs
+  the home Wi-Fi.
 - **"Ask first" call buttons.** A call button can be set to *Ask a parent first* (parent menu → Call
   buttons). It shows an amber hand and "Ask first". Tapping it asks the parents: their phones get an
   alert, "Alejandro wants to ring Pablo", with **No / 10 min / 30 min** (Android shows at most three

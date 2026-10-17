@@ -130,3 +130,25 @@ test('request bodies are capped: 8 MB for the app list, 64 KB elsewhere', async 
   assert.equal(notJson.status, 400);
   assert.equal(notJson.body.error, 'bad_json');
 });
+
+test("the child's phone can switch an app on and off (from its PIN-protected parent menu)", async (t) => {
+  const h = await startHub();
+  t.after(h.stop);
+  const { kidToken, Miguel } = await setupFamily(h, ['Miguel']);
+  await putApps(h, kidToken, { apps: [{ package: 'com.duolingo', label: 'Duolingo' }] });
+  const before = (await h.kid('GET', '/kid/state', { token: kidToken })).body.version;
+
+  const on = await h.kid('PUT', '/kid/apps/com.duolingo', { token: kidToken, body: { allowed: true } });
+  assert.deepEqual(on.body, { ok: true });
+  const state = (await h.kid('GET', '/kid/state', { token: kidToken })).body;
+  assert.deepEqual(state.allowedPackages, ['com.duolingo']);
+  assert.ok(state.version > before);
+  assert.equal((await appsOf(h, Miguel))[0].allowed, true); // the parents see it too
+
+  await h.kid('PUT', '/kid/apps/com.duolingo', { token: kidToken, body: { allowed: false } });
+  assert.deepEqual((await h.kid('GET', '/kid/state', { token: kidToken })).body.allowedPackages, []);
+
+  assert.equal((await h.kid('PUT', '/kid/apps/com.duolingo', { token: kidToken, body: { allowed: 'yes' } })).status, 400);
+  assert.equal((await h.kid('PUT', '/kid/apps/com.unknown.app', { token: kidToken, body: { allowed: true } })).status, 404);
+  assert.equal((await h.kid('PUT', '/kid/apps/com.duolingo', { body: { allowed: true } })).status, 401);
+});

@@ -66,6 +66,7 @@ fun HomeScreen() {
     // Fresh every 10 seconds while the app is on screen.
     LaunchedEffect(Unit) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            runCatching { Hub.syncFcmToken() }
             while (true) {
                 runCatching { Hub.state() }
                     .onSuccess { state = it; error = null }

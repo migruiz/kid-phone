@@ -49,6 +49,15 @@ export function kidRoutes(hub) {
       limit: 8 * MB,
       handle: ({ body }) => hub.putApps({ childName: optionalString(body, 'childName', 40), apps: checkApps(body) }),
     },
+    {
+      // A parent switching an app on or off in Kid Phone's own parent menu (behind its PIN).
+      method: 'PUT',
+      path: '/kid/apps/:package',
+      handle: ({ params, body }) => {
+        if (typeof body.allowed !== 'boolean') throw new HttpError(400, 'bad_request', '"allowed" must be true or false');
+        return hub.setAllowed({ name: "the child's phone" }, params.package, body.allowed);
+      },
+    },
     { method: 'GET', path: '/kid/state', handle: getState },
     {
       method: 'POST',

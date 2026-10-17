@@ -54,6 +54,8 @@ object Hub {
     private const val KEY_TOKEN = "token"
     private const val KEY_NAME = "name"
     private const val KEY_CHILD = "childName"
+    /** The Firebase alert address the hub last accepted for this phone. */
+    private const val KEY_FCM_SENT = "fcmSent"
 
     private lateinit var app: Context
     private val prefs by lazy { app.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
@@ -92,6 +94,7 @@ object Hub {
             .putString(KEY_TOKEN, answer.getString("token"))
             .putString(KEY_NAME, name)
             .putString(KEY_CHILD, answer.optString("childName"))
+            .putString(KEY_FCM_SENT, fcm)
             .apply()
         _paired.value = true
     }
@@ -116,6 +119,17 @@ object Hub {
     suspend fun updateFcm(fcmToken: String) {
         if (token == null) return
         call { Http.put("$BASE/parent/fcm", JSONObject().put("fcmToken", fcmToken), token) }
+        prefs.edit().putString(KEY_FCM_SENT, fcmToken).apply()
+    }
+
+    /**
+     * Makes sure the hub has this phone's current alert address. Firebase changes it now and then;
+     * if the hub was out of reach at that moment, this catches up. Cheap when nothing changed.
+     */
+    suspend fun syncFcmToken() {
+        if (token == null) return
+        val current = runCatching { fcmToken() }.getOrNull() ?: return
+        if (current != prefs.getString(KEY_FCM_SENT, null)) updateFcm(current)
     }
 
     suspend fun replaceKid() {

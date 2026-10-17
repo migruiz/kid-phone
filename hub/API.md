@@ -79,6 +79,11 @@ case the app comes back). An app that sends no `iconPng` keeps its earlier icon;
 allowed. `label` defaults to the package name. `childName` (optional) updates the name shown in the
 parent app and alerts.
 
+### `PUT /kid/apps/{package}`
+Body: `{"allowed":true}` → `200 {"ok":true}` · `404` (unknown app) · `400` (not a boolean).
+A parent switching an app on or off in Kid Phone's own parent menu, behind its PIN. Same effect
+as `PUT /parent/apps/{package}`: the parents' apps list shows it, and the kid state version goes up.
+
 ### `GET /kid/state?since=<version>&wait=<seconds>`
 Everything the child's phone needs:
 ```json

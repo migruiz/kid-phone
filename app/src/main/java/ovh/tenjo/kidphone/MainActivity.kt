@@ -37,6 +37,8 @@ import ovh.tenjo.kidphone.kiosk.Kiosk
 import ovh.tenjo.kidphone.kiosk.Loudness
 import ovh.tenjo.kidphone.ui.AllowedEditor
 import ovh.tenjo.kidphone.ui.AppsButton
+import ovh.tenjo.kidphone.ui.AppsEditor
+import ovh.tenjo.kidphone.ui.appsSummary
 import ovh.tenjo.kidphone.ui.AppsScreen
 import ovh.tenjo.kidphone.ui.AskScreen
 import ovh.tenjo.kidphone.ui.ContactsEditor
@@ -51,7 +53,7 @@ import ovh.tenjo.kidphone.ui.ParentPinScreen
 import ovh.tenjo.kidphone.ui.ReadyScreen
 import ovh.tenjo.kidphone.ui.hubSummary
 
-private enum class Screen { Kid, Apps, Pin, Parent, Contacts, Allowed, ChangePin, Hub }
+private enum class Screen { Kid, Apps, Pin, Parent, Contacts, Allowed, ChangePin, Hub, AppsEdit }
 
 /** The child asked to ring an "ask first" person; waiting for or showing the answer. */
 private data class Asking(
@@ -105,7 +107,7 @@ open class MainActivity : ComponentActivity() {
         )
         onBackPressedDispatcher.addCallback(this) {
             screen = when (screen) {
-                Screen.Contacts, Screen.Allowed, Screen.ChangePin, Screen.Hub -> Screen.Parent
+                Screen.Contacts, Screen.Allowed, Screen.ChangePin, Screen.Hub, Screen.AppsEdit -> Screen.Parent
                 else -> Screen.Kid
             }
         }
@@ -339,6 +341,8 @@ open class MainActivity : ComponentActivity() {
                         onAllowed = { screen = Screen.Allowed },
                         hubSummary = hubSummary(home),
                         onHub = { screen = Screen.Hub },
+                        appsSummary = appsSummary(allowedApps, home),
+                        onApps = { screen = Screen.AppsEdit },
                         onChangePin = { screen = Screen.ChangePin },
                         childName = childName,
                         onChildName = store::saveChildName,
@@ -362,6 +366,7 @@ open class MainActivity : ComponentActivity() {
                         onBack = { screen = Screen.Parent },
                     )
                     Screen.Hub -> HubScreen(childName = childName, onBack = { screen = Screen.Parent })
+                    Screen.AppsEdit -> AppsEditor(allowed = allowedApps, status = home, onBack = { screen = Screen.Parent })
                     Screen.ChangePin -> NewPinScreen(
                         title = "New parent PIN",
                         onDone = { store.setPin(it); screen = Screen.Parent },
