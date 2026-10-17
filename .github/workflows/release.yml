@@ -8,6 +8,8 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # A test build without publishing anything.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,6 +21,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Tag matches gradle.properties
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           want="$(grep '^appVersionName=' gradle.properties | cut -d= -f2)"
           [ "v$want" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME but gradle.properties says $want"; exit 1; }
@@ -39,6 +42,7 @@ jobs:
         run: |
           mkdir -p ~/.android
           echo "${{ secrets.SIGNING_KEYSTORE_BASE64 }}" | base64 -d > ~/.android/debug.keystore
+          echo "keystore: $(wc -c < ~/.android/debug.keystore) bytes, sha256 $(sha256sum ~/.android/debug.keystore | cut -c1-16)"
 
       - name: Firebase config for the parent app
         run: echo "${{ secrets.PARENT_GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > parent/google-services.json
@@ -50,6 +54,7 @@ jobs:
         run: |
           signer="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
           for apk in app/build/outputs/apk/release/app-release.apk parent/build/outputs/apk/release/parent-release.apk; do
+            "$signer" verify --print-certs "$apk" | grep -i "sha-256" || true
             "$signer" verify --print-certs "$apk" | grep -q "SHA-256 digest: 30a1b1b139275b396a280343bdeaaaa884eef3c725ca05933097e1a4ea2a8705" \
               || { echo "$apk is not signed with the Kid Phone key"; exit 1; }
           done
@@ -61,6 +66,7 @@ jobs:
           cp parent/build/outputs/apk/release/parent-release.apk out/kid-phone-parent.apk
 
       - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: out/*.apk
           generate_release_notes: true
