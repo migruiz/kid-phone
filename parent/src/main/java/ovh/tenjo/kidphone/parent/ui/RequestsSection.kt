@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,17 +19,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ovh.tenjo.kidphone.parent.CallRequest
-import ovh.tenjo.kidphone.parent.Notifications
 import ovh.tenjo.kidphone.ui.CallGreen
 import ovh.tenjo.kidphone.ui.Danger
-import ovh.tenjo.kidphone.ui.Group
-import ovh.tenjo.kidphone.ui.Hairline
 import ovh.tenjo.kidphone.ui.Ink
-import ovh.tenjo.kidphone.ui.Muted
+
+private fun CallRequest.isPending() = status == "pending"
+private fun CallRequest.isRunning() = status == "approved" && (remainingSeconds ?: 0) > 0
+
+/** Whether there is anything to show: a request waiting for an answer, or a call time running. */
+fun hasCurrentRequests(requests: List<CallRequest>): Boolean =
+    requests.any { it.isPending() || it.isRunning() }
 
 /**
- * "Ask first" requests: the ones waiting for an answer (with No / 10 min / 30 min / 1 hour), the
- * call times running now, and the last few answers.
+ * "Ask first" requests: the ones waiting for an answer (with No / 10 min / 30 min / 1 hour) and
+ * the call times running now (change or stop them). Finished ones are not shown.
  */
 @Composable
 fun RequestsSection(
@@ -41,9 +43,8 @@ fun RequestsSection(
     /** Change a running call time: 0 stops it, otherwise minutes from now. */
     onChange: (CallRequest, Int) -> Unit,
 ) {
-    val pending = requests.filter { it.status == "pending" }
-    val running = requests.filter { it.status == "approved" && (it.remainingSeconds ?: 0) > 0 }
-    val history = requests.filter { it !in pending && it !in running }.take(5)
+    val pending = requests.filter { it.isPending() }
+    val running = requests.filter { it.isRunning() }
 
     pending.forEach { r ->
         Surface(shape = RoundedCornerShape(24.dp), color = Color(0xFFFFF1D6), modifier = Modifier.fillMaxWidth()) {
@@ -82,24 +83,6 @@ fun RequestsSection(
             }
         }
         Spacer(Modifier.height(12.dp))
-    }
-
-    if (history.isNotEmpty()) {
-        Group {
-            history.forEachIndexed { i, r ->
-                if (i > 0) HorizontalDivider(Modifier.padding(start = 16.dp), color = Hairline)
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(r.contactName.ifBlank { r.number }, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                        Text(
-                            Notifications.outcome(r.status, r.minutes, if (r.status == "ended") r.endedBy else r.decidedBy),
-                            fontSize = 14.sp, color = Muted,
-                        )
-                    }
-                    Text(ago(r.agoMs), fontSize = 13.sp, color = Muted)
-                }
-            }
-        }
     }
 }
 

@@ -122,7 +122,7 @@ fun HomeScreen() {
         ChildCard(state?.child, error)
 
         state?.let { st ->
-            if (st.requests.isNotEmpty()) {
+            if (hasCurrentRequests(st.requests)) {
                 Spacer(Modifier.height(20.dp))
                 SectionLabel("Calls to ask about")
                 RequestsSection(
