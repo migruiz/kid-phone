@@ -96,6 +96,7 @@ object CallManager {
         if (call == null) {
             _current.value = null
             appContext?.let { Loudness.stopVibrating(it) }
+            Ringer.stop()
             Ringback.stop()
             return
         }
@@ -120,6 +121,7 @@ object CallManager {
             speaker = speaker,
         )
         if (calls.none { stateOf(it) == Call.STATE_RINGING }) {
+            Ringer.stop()
             appContext?.let {
                 CallService.cancelIncomingNotification(it)
                 Loudness.stopVibrating(it)

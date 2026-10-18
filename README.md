@@ -2,12 +2,18 @@
 
 An Android app that turns a phone into a child's phone.
 
-- **Up to four people to call.** Each has a big row with their picture (an emoji such as 👩, or the
-  first letter of their name), their name, a green call button, and their phone number in large
-  digits so the child learns it. Tapping the row rings that person. That is the only thing the child
-  can do.
+- **Two big buttons on the main screen: Contacts and Apps.** Calling is one step in, so a stray
+  tap on the main screen never rings anyone. Apps shows only once the hub is set up, and is dimmed
+  away from the home Wi-Fi.
+- **Up to four people to call** (behind Contacts). Each has a big row with their picture (an emoji
+  such as 👩, or the first letter of their name), their name, a green call button, and their phone
+  number in large digits so the child learns it. Tapping the row rings that person. The back button
+  goes back to the main screen, as does the Home button and every call.
 - **"Hi Alejandro 👋"** and the time at the top, plus the battery level (orange below 50%, red
   below 20%, a bolt while plugged in). The name is set in the parent menu.
+- **A ringtone for each call button**, chosen from the phone's own ringtones when editing the
+  button (tap one to hear it). Anyone else rings with the phone's ringtone. Kid Phone plays the
+  ringtone itself rather than leaving it to the phone, which can't pick one per caller.
 - **Only allowed people can ring the phone.** Anyone with a call button, plus an extra list the
   parents set. Every other call, including withheld numbers, is turned away without ringing. Turned-away
   calls still appear in the phone's call history.
@@ -21,9 +27,10 @@ An Android app that turns a phone into a child's phone.
   mode and factory reset from Settings are blocked.
 - **Survives restarts and updates.** If the phone was locked, it comes straight back to the kid
   screen.
-- **Parent exit.** The small padlock at the top right asks for the 8-digit parent PIN. From there: unlock the
-  phone (it becomes a normal Android phone), edit the call buttons, edit who can ring, change the
-  PIN, change the name on screen. Five wrong PINs in a row make it wait a minute, then longer.
+- **Parent exit.** The small padlock at the top right asks for the 8-digit parent PIN. It is
+  checked as soon as the 8th digit is typed (no OK button), and there is no limit on tries. From
+  there: unlock the phone (it becomes a normal Android phone), edit the call buttons, edit who can
+  ring, change the PIN, change the name on screen.
 - **Opening the app always locks the phone again.**
 - Warnings on screen when there is **no SIM card**, or when Kid Phone is no longer the phone app.
 - **Home hub and parent app.** Kid Phone connects to a small service on the home Raspberry Pi
@@ -32,8 +39,8 @@ An Android app that turns a phone into a child's phone.
   banner shows when the phone is **not on the home Wi-Fi** (it can't reach the hub).
 - **Apps the parents allow.** Kid Phone sends the list of apps on the phone (with icons) to the
   hub; each parent switches apps on or off in Kid Phone Parent, which flags apps that can message
-  or call people, open any website, or show any YouTube video. The **Apps** button on the kid screen
-  shows only the switched-on apps; the Home button always comes back to the kid screen. Apps only
+  or call people, open any website, or show any YouTube video. The **Apps** button on the main
+  screen shows only the switched-on apps; the Home button always comes back to the main screen. Apps only
   open on the home Wi-Fi: about a minute after the phone leaves it, an open app closes. An app
   switched off while open closes within seconds. Settings, the Play Store and the phone's own Phone
   app are never offered. The same list with switches is also on the child's phone itself, behind

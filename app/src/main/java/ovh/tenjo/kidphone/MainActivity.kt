@@ -46,7 +46,8 @@ import ovh.tenjo.kidphone.ui.ParentAnswerScreen
 import ovh.tenjo.kidphone.ui.ContactsEditor
 import ovh.tenjo.kidphone.ui.DialerSetupScreen
 import ovh.tenjo.kidphone.ui.HubScreen
-import ovh.tenjo.kidphone.ui.KidScreen
+import ovh.tenjo.kidphone.ui.ContactsScreen
+import ovh.tenjo.kidphone.ui.KidHomeScreen
 import ovh.tenjo.kidphone.ui.KidTheme
 import ovh.tenjo.kidphone.ui.NewPinScreen
 import ovh.tenjo.kidphone.ui.NotOwnerScreen
@@ -55,7 +56,11 @@ import ovh.tenjo.kidphone.ui.ParentPinScreen
 import ovh.tenjo.kidphone.ui.ReadyScreen
 import ovh.tenjo.kidphone.ui.hubSummary
 
-private enum class Screen { Kid, Apps, Pin, Parent, Contacts, Allowed, ChangePin, Hub, AppsEdit }
+/**
+ * Home is the main kid screen (Contacts and Apps buttons); Calls is the people he can ring, one
+ * tap in. The rest are the parent screens behind the PIN; Contacts there edits the call buttons.
+ */
+private enum class Screen { Home, Calls, Apps, Pin, Parent, Contacts, Allowed, ChangePin, Hub, AppsEdit }
 
 /** Where the asking flow is: waiting for an answer, a parent typing the PIN, or answering here. */
 private enum class AskStage { Wait, Pin, Answer }
@@ -93,7 +98,7 @@ open class MainActivity : ComponentActivity() {
     private var hasPin by mutableStateOf(false)
     private var setupDone by mutableStateOf(false)
     private var setupContactsDone by mutableStateOf(false)
-    private var screen by mutableStateOf(Screen.Kid)
+    private var screen by mutableStateOf(Screen.Home)
     private var asking by mutableStateOf<Asking?>(null)
     private var callTimeBusy by mutableStateOf(false)
     private var callTimeError by mutableStateOf<String?>(null)
@@ -118,7 +123,7 @@ open class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this) {
             screen = when (screen) {
                 Screen.Contacts, Screen.Allowed, Screen.ChangePin, Screen.Hub, Screen.AppsEdit -> Screen.Parent
-                else -> Screen.Kid
+                else -> Screen.Home
             }
         }
         refresh()
@@ -140,7 +145,7 @@ open class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        screen = Screen.Kid // the Home button always goes back to the call buttons
+        screen = Screen.Home // the Home button always goes back to the main kid screen
     }
 
     override fun onResume() {
@@ -154,7 +159,7 @@ open class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         // Screen off, or a call on top: never leave the parent screens open behind it.
-        screen = Screen.Kid
+        screen = Screen.Home
     }
 
     private fun refresh() {
@@ -240,12 +245,12 @@ open class MainActivity : ComponentActivity() {
     /** Unlocks just long enough to make this the phone app again, then locks once it is. */
     private fun fixDialer() {
         Kiosk.unlock(this)
-        screen = Screen.Kid
+        screen = Screen.Home
         refresh()
     }
 
     private fun goHome() {
-        screen = Screen.Kid
+        screen = Screen.Home
         runCatching {
             startActivity(
                 Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -288,16 +293,24 @@ open class MainActivity : ComponentActivity() {
 
             !setupDone -> ReadyScreen(onStart = { store.setupDone = true; refresh(); maybeLock() })
 
-            else -> InactivityTimeout(active = screen != Screen.Kid, onTimeout = { screen = Screen.Kid }) {
+            else -> InactivityTimeout(active = screen != Screen.Home, onTimeout = { screen = Screen.Home }) {
                 val ask = asking
+                // An "ask first" request stays on screen on either kid screen, even after a timeout.
+                val kidSide = screen == Screen.Home || screen == Screen.Calls
+                val warning = when {
+                    !dialer -> "Calls need fixing. Ask a parent."
+                    !simReady -> "No SIM card. Calls won't work."
+                    else -> null
+                }
+                val notice = if (home == HomeStatus.Away) "Not on the home Wi-Fi" else null
                 when {
-                    screen == Screen.Kid && ask != null && ask.stage == AskStage.Pin -> ParentPinScreen(
+                    kidSide && ask != null && ask.stage == AskStage.Pin -> ParentPinScreen(
                         store,
                         subtitle = "Type the PIN to answer for him here.",
                         onUnlocked = { asking = ask.copy(stage = AskStage.Answer, answerError = null) },
                         onCancel = { asking = ask.copy(stage = AskStage.Wait) },
                     )
-                    screen == Screen.Kid && ask != null && ask.stage == AskStage.Answer -> ParentAnswerScreen(
+                    kidSide && ask != null && ask.stage == AskStage.Answer -> ParentAnswerScreen(
                         name = ask.contact.name.ifBlank { "them" },
                         busy = ask.busy,
                         error = ask.answerError,
@@ -312,7 +325,7 @@ open class MainActivity : ComponentActivity() {
                         },
                         onCancel = { asking = ask.copy(stage = AskStage.Wait) },
                     )
-                    screen == Screen.Kid && ask != null -> {
+                    kidSide && ask != null -> {
                         val latest = requests.firstOrNull { it.id == ask.requestId }
                         LaunchedEffect(latest) { if (latest != null && latest != ask.request) asking = ask.copy(request = latest) }
                         AskScreen(
@@ -331,34 +344,40 @@ open class MainActivity : ComponentActivity() {
                         )
                     }
                     else -> when (screen) {
-                    Screen.Kid -> KidScreen(
+                    Screen.Home -> KidHomeScreen(
                         contacts = contacts,
                         childName = childName,
-                        warning = when {
-                            !dialer -> "Calls need fixing. Ask a parent."
-                            !simReady -> "No SIM card. Calls won't work."
-                            else -> null
-                        },
-                        notice = if (home == HomeStatus.Away) "Not on the home Wi-Fi" else null,
+                        warning = warning,
+                        notice = notice,
                         apps = when {
                             home == HomeStatus.NotSetUp -> AppsButton.Hidden
                             appsAvailable -> AppsButton.Ready
                             else -> AppsButton.AwayFromHome
                         },
+                        allowedApps = allowedApps,
+                        onContacts = { screen = Screen.Calls },
                         onApps = { screen = Screen.Apps },
+                        onParent = { screen = Screen.Pin },
+                    )
+                    Screen.Calls -> ContactsScreen(
+                        contacts = contacts,
+                        childName = childName,
+                        warning = warning,
+                        notice = notice,
                         windows = windows,
                         onCall = ::call,
+                        onBack = { screen = Screen.Home },
                         onParent = { screen = Screen.Pin },
                     )
                     Screen.Apps -> if (appsAvailable) {
-                        AppsScreen(allowed = allowedApps, onBack = { screen = Screen.Kid })
+                        AppsScreen(allowed = allowedApps, onBack = { screen = Screen.Home })
                     } else {
-                        LaunchedEffect(Unit) { screen = Screen.Kid } // left home while it was open
+                        LaunchedEffect(Unit) { screen = Screen.Home } // left home while it was open
                     }
                     Screen.Pin -> ParentPinScreen(
                         store,
                         onUnlocked = { screen = Screen.Parent },
-                        onCancel = { screen = Screen.Kid },
+                        onCancel = { screen = Screen.Home },
                     )
                     Screen.Parent -> ParentMenu(
                         isDialer = dialer,
@@ -396,7 +415,7 @@ open class MainActivity : ComponentActivity() {
                         childName = childName,
                         onChildName = store::saveChildName,
                         onFixDialer = ::fixDialer,
-                        onBackToKid = { screen = Screen.Kid },
+                        onBackToKid = { screen = Screen.Home },
                         onRemove = ::removeAndLeave,
                     )
                     Screen.Contacts -> ContactsEditor(

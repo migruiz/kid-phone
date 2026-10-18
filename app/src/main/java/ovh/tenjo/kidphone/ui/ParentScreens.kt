@@ -386,6 +386,8 @@ private fun ContactCard(index: Int, contact: Contact, onChange: (Contact) -> Uni
                     }
                 }
             }
+            Spacer(Modifier.height(14.dp))
+            RingtoneRow(contact, onChange)
             if (contact.isSet) {
                 Spacer(Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {

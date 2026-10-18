@@ -58,10 +58,16 @@ class CallService : InCallService() {
         CallManager.add(this, call)
 
         // Kid mode: full volume and vibration for every allowed caller, whatever the phone's
-        // sound settings. Vibration stops once the call is answered, declined or ends.
-        if (ringing && Store.get(this).locked) {
-            Loudness.makeLoud(this)
-            Loudness.startVibrating(this)
+        // sound settings. Outside kid mode the phone's settings decide. Then the caller's own
+        // ringtone. Both stop once the call is answered, declined or ends.
+        if (ringing) {
+            if (Store.get(this).locked) {
+                Loudness.makeLoud(this)
+                Loudness.startVibrating(this)
+            } else if (Ringer.phoneWantsVibration(this)) {
+                Loudness.startVibrating(this)
+            }
+            Ringer.start(this, CallManager.numberOf(call))
         }
 
         val screen = Intent(this, InCallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -71,6 +77,11 @@ class CallService : InCallService() {
 
     override fun onCallRemoved(call: Call) {
         CallManager.remove(call)
+    }
+
+    /** The power button while it rings: quiet, as with the phone's own ringtone (it still shows). */
+    override fun onSilenceRinger() {
+        Ringer.stop()
     }
 
     @Deprecated("Still delivered on every supported version")
@@ -92,7 +103,7 @@ class CallService : InCallService() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "Incoming calls", NotificationManager.IMPORTANCE_HIGH).apply {
-                setSound(null, null) // the phone plays the ringtone itself
+                setSound(null, null) // the ringtone comes from Ringer
             }
         )
         val pending = PendingIntent.getActivity(

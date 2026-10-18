@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -35,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import ovh.tenjo.kidphone.data.PinCheck
+import kotlinx.coroutines.delay
 import ovh.tenjo.kidphone.data.Store
 import kotlin.math.roundToInt
 
@@ -55,8 +55,9 @@ import kotlin.math.roundToInt
 const val PIN_LENGTH = 8
 
 /**
- * A big number keypad. Typed digits show as dots, never as numbers. [errorCount] going up makes
- * the dots shake and the phone buzz, so a wrong PIN is obvious.
+ * A big number keypad. Typed digits show as dots, never as numbers. Typing the last digit hands
+ * the PIN to [onSubmit] straight away; there is no OK key. [errorCount] going up makes the dots
+ * shake and the phone buzz, so a wrong PIN is obvious.
  */
 @Composable
 fun PinPad(
@@ -66,12 +67,18 @@ fun PinPad(
     onCancel: (() -> Unit)?,
     subtitle: String? = null,
     errorCount: Int = 0,
-    minLength: Int = PIN_LENGTH,
-    maxLength: Int = PIN_LENGTH,
 ) {
     var pin by remember { mutableStateOf("") }
     val shake = remember { Animatable(0f) }
     val haptics = LocalHapticFeedback.current
+    val submit by rememberUpdatedState(onSubmit)
+    LaunchedEffect(pin) {
+        if (pin.length < PIN_LENGTH) return@LaunchedEffect
+        delay(150) // long enough to see the last dot fill in
+        val typed = pin
+        pin = ""
+        submit(typed)
+    }
     LaunchedEffect(errorCount) {
         if (errorCount == 0) return@LaunchedEffect
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -123,7 +130,7 @@ fun PinPad(
                     Modifier.offset { IntOffset(shake.value.roundToInt(), 0) },
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    repeat(maxOf(minLength, pin.length)) { i -> PinDot(filled = i < pin.length, error = message != null && pin.isEmpty()) }
+                    repeat(PIN_LENGTH) { i -> PinDot(filled = i < pin.length, error = message != null && pin.isEmpty()) }
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -134,27 +141,17 @@ fun PinPad(
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                val rows = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("<", "0", "OK"))
+                // No OK key: the PIN is checked as soon as the last digit is typed.
+                val rows = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("", "0", "<"))
                 rows.forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         row.forEach { key ->
                             when (key) {
+                                "" -> Spacer(Modifier.size(keySize))
                                 "<" -> RoundKey(onClick = { pin = pin.dropLast(1) }, size = keySize) {
                                     Icon(Icons.AutoMirrored.Rounded.Backspace, contentDescription = "Delete", tint = Ink, modifier = Modifier.size(keySize * 0.36f))
                                 }
-                                "OK" -> RoundKey(
-                                    onClick = {
-                                        val typed = pin
-                                        pin = ""
-                                        onSubmit(typed)
-                                    },
-                                    enabled = pin.length >= minLength,
-                                    color = Brand,
-                                    size = keySize,
-                                ) {
-                                    Icon(Icons.Rounded.Check, contentDescription = "OK", tint = Color.White, modifier = Modifier.size(keySize * 0.42f))
-                                }
-                                else -> RoundKey(onClick = { if (pin.length < maxLength) pin += key }, size = keySize) {
+                                else -> RoundKey(onClick = { if (pin.length < PIN_LENGTH) pin += key }, size = keySize) {
                                     Text(key, fontSize = (keySize.value * 0.38f).sp, fontWeight = FontWeight.Bold, color = Ink)
                                 }
                             }
@@ -230,26 +227,16 @@ fun ParentPinScreen(
         errorCount = errors,
         onCancel = onCancel,
         onSubmit = { pin ->
-            when (val r = store.checkPin(pin)) {
-                PinCheck.Ok -> {
-                    message = null
-                    onUnlocked()
-                }
-                is PinCheck.Wrong -> {
-                    message = "Wrong PIN. ${r.triesLeft} ${if (r.triesLeft == 1) "try" else "tries"} left."
-                    errors++
-                }
-                is PinCheck.Wait -> {
-                    message = "Too many wrong tries.\nWait ${formatWait(r.seconds)}."
-                    errors++
-                }
+            if (store.checkPin(pin)) {
+                message = null
+                onUnlocked()
+            } else {
+                message = "Wrong PIN. Try again."
+                errors++
             }
         },
     )
 }
-
-private fun formatWait(seconds: Long): String =
-    if (seconds >= 60) "${(seconds + 59) / 60} min" else "$seconds s"
 
 /** Choosing a new 8-digit PIN: type it, then type it again. */
 @Composable

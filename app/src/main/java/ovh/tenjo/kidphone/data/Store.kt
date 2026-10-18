@@ -10,13 +10,13 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
-import kotlin.math.min
 
 /**
  * One of the four big call buttons. A button with no number is hidden. [emoji] is the picture on
  * the button; when empty the first letter of the name is shown. [color] is an index into the
  * button colours, or -1 for someone who has no button. With [askFirst], each call needs a parent's
- * OK in Kid Phone Parent (they can still ring the child any time).
+ * OK in Kid Phone Parent (they can still ring the child any time). [ringtone] is the address of
+ * one of the phone's ringtones, played when this person rings; empty means the phone's ringtone.
  */
 data class Contact(
     val name: String = "",
@@ -24,18 +24,13 @@ data class Contact(
     val color: Int = 0,
     val emoji: String = "",
     val askFirst: Boolean = false,
+    val ringtone: String = "",
 ) {
     val isSet: Boolean get() = PhoneNumbers.digits(number).isNotEmpty()
 }
 
 /** Someone who may ring the phone but has no call button. */
 data class AllowedCaller(val name: String, val number: String)
-
-sealed interface PinCheck {
-    data object Ok : PinCheck
-    data class Wrong(val triesLeft: Int) : PinCheck
-    data class Wait(val seconds: Long) : PinCheck
-}
 
 /** Everything the app remembers, kept in the app's private storage on the phone. */
 class Store private constructor(context: Context) {
@@ -85,6 +80,7 @@ class Store private constructor(context: Context) {
             json.put(
                 JSONObject().put("name", it.name).put("number", it.number)
                     .put("color", it.color).put("emoji", it.emoji).put("askFirst", it.askFirst)
+                    .put("ringtone", it.ringtone)
             )
         }
         prefs.edit().putString(KEY_CONTACTS, json.toString()).apply()
@@ -127,36 +123,14 @@ class Store private constructor(context: Context) {
         prefs.edit()
             .putString(KEY_PIN_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
             .putString(KEY_PIN_HASH, Base64.encodeToString(hash(pin, salt), Base64.NO_WRAP))
-            .putInt(KEY_PIN_FAILS, 0)
-            .putLong(KEY_PIN_WAIT_UNTIL, 0)
             .commit()
     }
 
-    /**
-     * Checks a PIN typed at the parent screen. Five wrong tries in a row make it wait a minute,
-     * and each further wrong try adds another minute (up to 15), so guessing is impractical.
-     */
-    fun checkPin(pin: String, now: Long = System.currentTimeMillis()): PinCheck {
-        val waitUntil = prefs.getLong(KEY_PIN_WAIT_UNTIL, 0)
-        if (now < waitUntil) return PinCheck.Wait((waitUntil - now + 999) / 1000)
-
+    /** Checks a PIN typed at the parent screen. Any number of tries, never a wait. */
+    fun checkPin(pin: String): Boolean {
         val salt = Base64.decode(prefs.getString(KEY_PIN_SALT, "") ?: "", Base64.NO_WRAP)
         val expected = Base64.decode(prefs.getString(KEY_PIN_HASH, "") ?: "", Base64.NO_WRAP)
-        if (expected.isNotEmpty() && MessageDigest.isEqual(hash(pin, salt), expected)) {
-            prefs.edit().putInt(KEY_PIN_FAILS, 0).putLong(KEY_PIN_WAIT_UNTIL, 0).apply()
-            return PinCheck.Ok
-        }
-
-        val fails = prefs.getInt(KEY_PIN_FAILS, 0) + 1
-        val editor = prefs.edit().putInt(KEY_PIN_FAILS, fails)
-        return if (fails >= FREE_TRIES) {
-            val minutes = min(fails - FREE_TRIES + 1, 15).toLong()
-            editor.putLong(KEY_PIN_WAIT_UNTIL, now + minutes * 60_000).apply()
-            PinCheck.Wait(minutes * 60)
-        } else {
-            editor.apply()
-            PinCheck.Wrong(FREE_TRIES - fails)
-        }
+        return expected.isNotEmpty() && MessageDigest.isEqual(hash(pin, salt), expected)
     }
 
     private fun hash(pin: String, salt: ByteArray): ByteArray {
@@ -173,7 +147,7 @@ class Store private constructor(context: Context) {
                 if (o == null) Contact(color = i)
                 else Contact(
                     o.optString("name"), o.optString("number"), o.optInt("color", i), o.optString("emoji"),
-                    o.optBoolean("askFirst"),
+                    o.optBoolean("askFirst"), o.optString("ringtone"),
                 )
             }
         }.getOrDefault(DEFAULT_CONTACTS)
@@ -192,7 +166,6 @@ class Store private constructor(context: Context) {
 
     companion object {
         const val SLOTS = 4
-        private const val FREE_TRIES = 5
 
         private const val KEY_LOCKED = "locked"
         private const val KEY_SETUP_DONE = "setup_done"
@@ -203,8 +176,6 @@ class Store private constructor(context: Context) {
         private const val DEFAULT_CHILD_NAME = "Alejandro"
         private const val KEY_PIN_HASH = "pin_hash"
         private const val KEY_PIN_SALT = "pin_salt"
-        private const val KEY_PIN_FAILS = "pin_fails"
-        private const val KEY_PIN_WAIT_UNTIL = "pin_wait_until"
 
         private val DEFAULT_CONTACTS = listOf(
             Contact("Mum", "", 0, "👩"),

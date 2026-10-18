@@ -6,6 +6,7 @@ import android.telephony.TelephonyManager
 import android.text.format.DateFormat
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Call
@@ -45,15 +47,20 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -62,17 +69,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.WindowCompat
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import ovh.tenjo.kidphone.data.Contact
 import ovh.tenjo.kidphone.data.PhoneNumbers
+import ovh.tenjo.kidphone.hub.Apps
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 val NightTop = Color(0xFF161C36)
 val NightBottom = Color(0xFF0A0E1C)
 
-/** The Apps button on the kid screen: hidden until the hub is set up, dimmed away from home. */
+/** The Apps button on the main kid screen: hidden until the hub is set up, dimmed away from home. */
 enum class AppsButton { Hidden, Ready, AwayFromHome }
 
 /** The dark night-sky background of the kid screens, with two soft coloured glows. */
@@ -122,20 +133,21 @@ fun RoundTopButton(
 }
 
 /**
- * What the child sees: "Hi <name>" and the time, the battery, one wide row per person he can call
- * (picture, name and a big green call button), the Apps button, and a small padlock for parents.
+ * The main kid screen: "Hi <name>" and the time, the battery, a small padlock for parents, and two
+ * big buttons, Contacts and Apps. Calling is one step further in, on [ContactsScreen], so a stray
+ * tap here never rings anyone.
  */
 @Composable
-fun KidScreen(
+fun KidHomeScreen(
     contacts: List<Contact>,
     childName: String,
     warning: String?,
     notice: String?,
     apps: AppsButton,
+    /** The apps the parents switched on, shown small on the Apps button. */
+    allowedApps: Set<String>,
+    onContacts: () -> Unit,
     onApps: () -> Unit,
-    /** Approved call times for "ask first" buttons: number → when it ends (wall clock). */
-    windows: Map<String, Long>,
-    onCall: (Contact) -> Unit,
     onParent: () -> Unit,
 ) {
     val people = contacts.filter { it.isSet }
@@ -148,68 +160,147 @@ fun KidScreen(
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
-            // First line: the greeting, with the parents' padlock at the end.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (childName.isNotBlank()) "Hi $childName 👋" else greeting(now),
-                    fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = Color.White.copy(alpha = 0.92f),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+            KidHeader(childName, now, onBack = null, onParent = onParent)
+            Banners(warning, notice)
+            Spacer(Modifier.height(20.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                HomeTile(
+                    label = "Contacts",
+                    icon = Icons.Rounded.Call,
+                    color = CallGreen,
+                    onClick = onContacts,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                ) {
+                    if (people.isEmpty()) {
+                        TileNote("No one yet")
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { people.forEach { Face(it, 42.dp) } }
+                    }
+                }
                 if (apps != AppsButton.Hidden) {
-                    Spacer(Modifier.width(10.dp))
-                    RoundTopButton(
-                        Icons.Rounded.Apps, "Apps", bright = apps == AppsButton.Ready, size = 46.dp,
+                    val away = apps == AppsButton.AwayFromHome
+                    HomeTile(
+                        label = "Apps",
+                        icon = Icons.Rounded.Apps,
+                        color = Brand,
+                        dimmed = away,
                         onClick = {
-                            if (apps == AppsButton.Ready) {
-                                onApps()
-                            } else {
+                            if (away) {
                                 Toast.makeText(context, "Apps only work at home, on the home Wi-Fi.", Toast.LENGTH_LONG).show()
+                            } else {
+                                onApps()
                             }
                         },
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                RoundTopButton(Icons.Rounded.Lock, "Parents", onClick = onParent, bright = false)
-            }
-            // Second line: the clock, with the battery at the end.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    timeText(now), fontSize = 46.sp, fontWeight = FontWeight.Black, color = Color.White,
-                    lineHeight = 50.sp, modifier = Modifier.weight(1f),
-                )
-                BatteryBadge()
-            }
-            if (warning != null) {
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0x33EF4444))
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = Color(0xFFFF9B9B))
-                    Spacer(Modifier.width(10.dp))
-                    Text(warning, color = Color(0xFFFFC2C2), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    ) {
+                        if (away) TileNote("Only at home") else AppIcons(allowedApps)
+                    }
                 }
             }
-            if (notice != null) {
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0x33F59E0B))
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Rounded.WifiOff, contentDescription = null, tint = Color(0xFFFFD27A))
-                    Spacer(Modifier.width(10.dp))
-                    Text(notice, color = Color(0xFFFFE2A8), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
+        }
+    }
+}
+
+/** A big button on the main kid screen: a round coloured icon, a word, and a small preview. */
+@Composable
+private fun HomeTile(
+    label: String,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    dimmed: Boolean = false,
+    preview: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(34.dp)
+    BoxWithConstraints(
+        modifier
+            .bounceClick(onClick = onClick)
+            .alpha(if (dimmed) 0.5f else 1f)
+            .clip(shape)
+            .background(Brush.verticalGradient(listOf(color.copy(alpha = 0.32f), Color.White.copy(alpha = 0.04f))))
+            .border(1.dp, Color.White.copy(alpha = 0.10f), shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        // On short screens the preview is left out and the icon shrinks, so the word always fits.
+        val roomy = maxHeight >= 220.dp
+        val circle = minOf(maxHeight * (if (roomy) 0.36f else 0.5f), 100.dp)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                Modifier
+                    .size(circle)
+                    .shadow(18.dp, CircleShape, ambientColor = color, spotColor = color)
+                    .background(color, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(circle * 0.5f))
             }
+            Spacer(Modifier.height(10.dp))
+            Text(label, fontSize = 34.sp, fontWeight = FontWeight.Black, color = Color.White, maxLines = 1)
+            if (roomy) {
+                Spacer(Modifier.height(10.dp))
+                Box(Modifier.heightIn(min = 42.dp), contentAlignment = Alignment.Center) { preview() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TileNote(text: String) {
+    Text(text, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.7f))
+}
+
+/** Up to five of the switched-on apps' icons, in the same order as the Apps screen. */
+@Composable
+private fun AppIcons(allowed: Set<String>) {
+    val context = LocalContext.current
+    // Loaded off the main thread: listing the phone's apps takes a moment.
+    val icons by produceState<List<ImageBitmap>?>(null, allowed) {
+        value = withContext(Dispatchers.IO) {
+            Apps.launchable(context).filter { it.packageName in allowed }.take(5).mapNotNull { app ->
+                runCatching {
+                    context.packageManager.getApplicationIcon(app.packageName).toBitmap(120, 120).asImageBitmap()
+                }.getOrNull()
+            }
+        }
+    }
+    val loaded = icons ?: return
+    if (loaded.isEmpty()) {
+        TileNote("No apps yet")
+    } else {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            loaded.forEach { Image(it, contentDescription = null, modifier = Modifier.size(42.dp)) }
+        }
+    }
+}
+
+/**
+ * The people he can call: "Hi <name>" and the time, the battery, one wide row per person (picture,
+ * name and a big green call button), a back button to the main screen, and the parents' padlock.
+ */
+@Composable
+fun ContactsScreen(
+    contacts: List<Contact>,
+    childName: String,
+    warning: String?,
+    notice: String?,
+    /** Approved call times for "ask first" buttons: number → when it ends (wall clock). */
+    windows: Map<String, Long>,
+    onCall: (Contact) -> Unit,
+    onBack: () -> Unit,
+    onParent: () -> Unit,
+) {
+    val people = contacts.filter { it.isSet }
+    val now = rememberNow()
+    KidBackground {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            KidHeader(childName, now, onBack = onBack, onParent = onParent)
+            Banners(warning, notice)
             Spacer(Modifier.height(20.dp))
             if (people.isEmpty()) {
                 NobodyYet(Modifier.weight(1f))
@@ -225,6 +316,64 @@ fun KidScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * The top of the kid screens: the greeting with the parents' padlock at the end (and a back button
+ * at the start when [onBack] is given), then the clock with the battery at the end.
+ */
+@Composable
+private fun KidHeader(childName: String, now: LocalDateTime, onBack: (() -> Unit)?, onParent: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (onBack != null) {
+            RoundTopButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back", onClick = onBack, bright = true, size = 46.dp)
+            Spacer(Modifier.width(12.dp))
+        }
+        Text(
+            if (childName.isNotBlank()) "Hi $childName 👋" else greeting(now),
+            fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = Color.White.copy(alpha = 0.92f),
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(10.dp))
+        RoundTopButton(Icons.Rounded.Lock, "Parents", onClick = onParent, bright = false)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            timeText(now), fontSize = 46.sp, fontWeight = FontWeight.Black, color = Color.White,
+            lineHeight = 50.sp, modifier = Modifier.weight(1f),
+        )
+        BatteryBadge()
+    }
+}
+
+/** The red "calls need fixing / no SIM" warning and the amber "not on the home Wi-Fi" notice. */
+@Composable
+private fun Banners(warning: String?, notice: String?) {
+    if (warning != null) {
+        Spacer(Modifier.height(12.dp))
+        Banner(Icons.Rounded.WarningAmber, warning, Color(0x33EF4444), Color(0xFFFF9B9B), Color(0xFFFFC2C2))
+    }
+    if (notice != null) {
+        Spacer(Modifier.height(12.dp))
+        Banner(Icons.Rounded.WifiOff, notice, Color(0x33F59E0B), Color(0xFFFFD27A), Color(0xFFFFE2A8))
+    }
+}
+
+@Composable
+private fun Banner(icon: ImageVector, text: String, background: Color, iconTint: Color, textColor: Color) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(background)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = iconTint)
+        Spacer(Modifier.width(10.dp))
+        Text(text, color = textColor, fontWeight = FontWeight.Bold, fontSize = 16.sp)
     }
 }
 
