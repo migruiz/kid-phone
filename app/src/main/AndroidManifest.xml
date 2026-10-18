@@ -14,6 +14,11 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- To switch off silent mode and Do Not Disturb in kid mode. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!--
+        To ask once (a parent, behind the PIN) to run in the background, so battery reports leave
+        at once with the screen off, even in deep sleep or battery saver. Sideloaded, never on Play.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- To list and open the apps the parents can allow (Android 11+ hides other apps otherwise). -->
     <queries>

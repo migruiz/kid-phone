@@ -46,6 +46,18 @@ An Android app that turns a phone into a child's phone.
   app are never offered. The same list with switches is also on the child's phone itself, behind
   the PIN (padlock → *Apps he can open*); it changes the same switches through the hub, so it needs
   the home Wi-Fi.
+- **Battery alerts to the parents.** When his battery drops below **25%**, **15%** and **10%**, the
+  parents' phones get an alert: *low* (a sound), *very low* (pops up), *critical* (pops up and
+  vibrates hard). Each one comes once per drop and never while the phone is plugged in. It comes
+  again only after the phone has been charged back above that level, so a loose cable doesn't
+  repeat it. If his phone is plugged in or unplugged while an alert is showing, the alert quietly
+  changes to say so. Kid Phone Parent also shows his battery level on its main screen. Each kind of
+  alert has its own switch and sound in the parent phone's Android settings (Apps → Kid Phone Parent
+  → Notifications). Only on the home Wi-Fi: away from home his phone can't reach the hub, and it
+  reports as soon as it is back.
+  - **Allow it once on his phone**: padlock → PIN → *Battery alerts can be late* → **Allow**, then
+    **Allow** again. Without it, while the screen is off Android holds the reports back, for hours
+    in deep sleep and altogether in battery saver (until the screen comes on).
 - **"Ask first" call buttons.** A call button can be set to *Ask a parent first* (parent menu → Call
   buttons). It shows an amber hand and "Ask first". Tapping it asks the parents: their phones get an
   alert, "Alejandro wants to ring Pablo", with **No / 10 min / 30 min** (Android shows at most three

@@ -88,6 +88,6 @@ test('the child state tracks lastSeen and the app version', async (t) => {
   h.clock.advance(60_000);
   await h.kid('GET', '/kid/ping', { token: kidToken, headers: { 'x-app-version': '10203' } });
   const { child, time } = (await h.parent('GET', '/parent/state', { token: Miguel })).body;
-  assert.deepEqual(child, { name: 'Alejandro', paired: true, lastSeen: h.clock.now(), appVersion: 10203 });
+  assert.deepEqual(child, { name: 'Alejandro', paired: true, lastSeen: h.clock.now(), appVersion: 10203, battery: null });
   assert.equal(time, h.clock.now());
 });

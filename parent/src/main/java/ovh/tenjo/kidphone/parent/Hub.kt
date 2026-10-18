@@ -14,7 +14,10 @@ import ovh.tenjo.kidphone.shared.HttpError
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-data class Child(val name: String, val paired: Boolean, val lastSeenAgoMs: Long?, val appVersion: Long?)
+data class Child(val name: String, val paired: Boolean, val lastSeenAgoMs: Long?, val appVersion: Long?, val battery: Battery? = null)
+
+/** The child's battery as last reported to the hub (it reports on the home Wi-Fi only). */
+data class Battery(val percent: Int, val charging: Boolean, val agoMs: Long)
 
 data class KidApp(val packageName: String, val label: String, val allowed: Boolean, val installed: Boolean, val hasIcon: Boolean)
 
@@ -179,6 +182,9 @@ object Hub {
             paired = c.optBoolean("paired"),
             lastSeenAgoMs = if (c.isNull("lastSeen")) null else (now - c.getLong("lastSeen")).coerceAtLeast(0),
             appVersion = if (c.isNull("appVersion")) null else c.optLong("appVersion"),
+            battery = c.optJSONObject("battery")?.let {
+                Battery(it.optInt("percent"), it.optBoolean("charging"), (now - it.optLong("at", now)).coerceAtLeast(0))
+            },
         )
         val apps = json.optJSONArray("apps").objects().map {
             KidApp(it.getString("package"), it.optString("label"), it.optBoolean("allowed"), it.optBoolean("installed", true), it.optBoolean("hasIcon"))

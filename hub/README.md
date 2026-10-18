@@ -2,8 +2,9 @@
 
 A small Node.js service that runs in Docker on the home Raspberry Pi. It sits between Kid Phone
 (the child's phone) and Kid Phone Parent (the parents' phones). It keeps the child's app list and
-which apps are allowed, holds "may I call this number?" requests and the parents' answers, and
-alerts the parents' phones through Firebase Cloud Messaging. The full contract is in
+which apps are allowed, holds "may I call this number?" requests and the parents' answers, keeps
+the child's battery level, and alerts the parents' phones through Firebase Cloud Messaging (call
+requests, and the battery dropping below 25%, 15% and 10%). The full contract is in
 [API.md](API.md).
 
 - Port **8774** is for the child's phone and only answers on the home network.
@@ -46,7 +47,7 @@ In PowerShell: `$env:DATA_DIR='./tmp'; node src/server.js`. Then try
 
 - `src/server.js`: reads the settings, starts both ports, saves state on `docker stop`
 - `src/app.js`: puts the pieces together (the tests use it too)
-- `src/hub.js`: pairing, apps, call requests, timers, the long-poll, and FCM alerts
+- `src/hub.js`: pairing, apps, call requests, battery alerts, timers, the long-poll, and FCM alerts
 - `src/routes-kid.js`, `src/routes-parent.js`: the HTTP routes for each port
 - `src/store.js`: `state.json` (written atomically) and the icon files
 - `src/net.js`: the "home network only, not through Cloudflare" check for the kid port

@@ -18,16 +18,19 @@ class Messaging : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val d = message.data
-        Log.i(TAG, "Message from the hub: ${d["type"]}")
-        val id = d["id"] ?: return
+        Log.i(TAG, "Message from the hub: ${d["type"]} ${d["level"].orEmpty()}")
         when (d["type"]) {
             "call_request" -> Notifications.showRequest(
-                this, id, d["childName"].orEmpty(), d["contactName"].orEmpty(),
+                this, d["id"] ?: return, d["childName"].orEmpty(), d["contactName"].orEmpty(),
                 d["expiresAt"]?.toLongOrNull() ?: (System.currentTimeMillis() + 5 * 60_000),
             )
             // Answered (maybe by the other parent), expired or cancelled: say how it ended.
             "request_closed" -> Notifications.showClosed(
-                this, id, Notifications.outcome(d["status"].orEmpty(), d["minutes"]?.toIntOrNull(), d["by"]),
+                this, d["id"] ?: return, Notifications.outcome(d["status"].orEmpty(), d["minutes"]?.toIntOrNull(), d["by"]),
+            )
+            // Low (below 25%), very low (15%), critical (10%), or plugged in or out after one of those.
+            "battery" -> Notifications.showBattery(
+                this, d["level"].orEmpty(), d["percent"]?.toIntOrNull() ?: return, d["childName"].orEmpty(),
             )
         }
     }

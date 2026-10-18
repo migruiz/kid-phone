@@ -18,6 +18,16 @@ export const LIMITS = {
 };
 
 const ANSWER_MINUTES = [0, 10, 30, 60];
+
+// Battery alerts to the parents, most severe first: one alert per line as the battery drops below it.
+export const BATTERY_LINES = [
+  { below: 10, level: 'critical' },
+  { below: 15, level: 'very_low' },
+  { below: 25, level: 'low' },
+];
+// A line alerts again only after the phone has charged back up to it. A phone charged away from
+// home isn't heard from while charging, so being this many points above a line also counts.
+const BATTERY_REARM_POINTS = 3;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_ICON_SIDE = 192;
 
@@ -176,7 +186,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     const targets = state.parents.filter((p) => p.fcmToken);
     for (const parent of targets) {
       const token = parent.fcmToken;
-      const what = `fcm ${data.type} ${data.id} to ${parent.name}`;
+      const what = `fcm ${data.type} ${data.id ?? data.level} to ${parent.name}`;
       const job = Promise.resolve()
         .then(() => fcm.send(token, data))
         .then((result) => {
@@ -352,6 +362,43 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     return { ok: true };
   }
 
+  /**
+   * The child's phone reports its battery whenever the level or the plug changes (only possible on
+   * the home Wi-Fi). Below 25%, 15% and 10% the parents get an alert, once per line, never while
+   * it is plugged in. Plugging it in or out while an alert is out tells the parents too.
+   */
+  function reportBattery({ percent, charging }) {
+    const now = clock.now();
+    const before = state.battery;
+    let alerted = before?.alerted ?? null; // the most severe line alerted in this drop, or null
+
+    // Lines the phone has charged back up to can alert again.
+    const rearmed = (below) => (charging && percent >= below) || percent >= below + BATTERY_REARM_POINTS;
+    while (alerted !== null && rearmed(alerted)) {
+      const next = BATTERY_LINES.find((l) => l.below > alerted);
+      alerted = next ? next.below : null;
+    }
+
+    const line = charging ? null : BATTERY_LINES.find((l) => percent < l.below);
+    const alert = line && (alerted === null || line.below < alerted) ? line : null;
+    if (alert) alerted = alert.below;
+
+    state.battery = { percent, charging, at: now, alerted };
+    if (alerted !== (before?.alerted ?? null)) store.save(); // never alert twice for a line, even after a restart
+    else store.saveSoon(); // only the reading changed
+
+    const message = (level) => ({ type: 'battery', level, percent: String(percent), childName: state.kid.name });
+    if (alert) {
+      log(`battery at ${percent}%: ${alert.level} alert to the parents${fcm ? '' : ' (alerts are off)'}`);
+      notifyParents(message(alert.level));
+    } else if (before !== null && charging !== before.charging) {
+      log(`battery at ${percent}%: ${charging ? 'plugged in' : 'unplugged'}`);
+      // While an alert is out, the parents' notification follows the plug (quietly, in the app).
+      if (before.alerted !== null) notifyParents(message(charging ? 'charging' : 'unplugged'));
+    }
+    return { ok: true };
+  }
+
   function prune(now) {
     const finished = state.requests.filter((r) => !isOpen(r, now)).sort((a, b) => b.createdAt - a.createdAt);
     if (finished.length <= LIMITS.keepFinished) return;
@@ -444,6 +491,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
         paired: state.kid.tokenHash !== null,
         lastSeen: state.kid.lastSeen,
         appVersion: state.kid.appVersion,
+        battery: state.battery && { percent: state.battery.percent, charging: state.battery.charging, at: state.battery.at },
       },
       apps,
       requests: newestFirst.filter((r) => shown.has(r)).map((r) => parentRequest(r, now)),
@@ -563,6 +611,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     waitForChange,
     createRequest,
     cancelRequest,
+    reportBattery,
     pair,
     setFcmToken,
     parentState,

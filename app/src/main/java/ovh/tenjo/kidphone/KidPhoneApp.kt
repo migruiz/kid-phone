@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.os.PowerManager
 import android.telecom.TelecomManager
 import ovh.tenjo.kidphone.call.CallManager
+import ovh.tenjo.kidphone.hub.BatteryReport
 import ovh.tenjo.kidphone.hub.Hub
 import ovh.tenjo.kidphone.shared.Updater
 
@@ -23,6 +24,8 @@ class KidPhoneApp : Application() {
             override fun onReceive(context: Context, intent: Intent) = Updater.installDownloadedIfAllowed(context)
         }, IntentFilter(Intent.ACTION_SCREEN_OFF))
         Hub.watch(this)
+        // The parents get an alert when the battery runs low (through the hub, on the home Wi-Fi).
+        BatteryReport.start(this)
         // An app installed, updated or removed: the parents' list should follow.
         registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) = Hub.poke()

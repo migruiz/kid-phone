@@ -10,11 +10,21 @@ import android.content.Intent
 /**
  * The "Alejandro wants to ring Pablo" alerts. Android shows at most three buttons on a
  * notification, so it has No, 10 min and 30 min; tapping it opens the app, which also offers 1 hour.
+ *
+ * Also the battery alerts, each in its own channel so a parent can tune each one in Android's
+ * settings: low (below 25%) makes a sound, very low (15%) also pops up, critical (10%) pops up
+ * and vibrates hard.
  */
 object Notifications {
     private const val CHANNEL_REQUESTS = "call_requests"
     private const val CHANNEL_ANSWERS = "call_answers"
+    private const val CHANNEL_BATTERY_LOW = "battery_low"
+    private const val CHANNEL_BATTERY_VERY_LOW = "battery_very_low"
+    private const val CHANNEL_BATTERY_CRITICAL = "battery_critical"
+    private const val CHANNEL_BATTERY_PLUG = "battery_plug"
     private const val NAMES = "request_names"
+    /** One battery notification at a time: each one replaces the last. */
+    private const val BATTERY_ID = 0x0BA77E21
 
     private fun manager(context: Context) = context.getSystemService(NotificationManager::class.java)
 
@@ -27,6 +37,60 @@ object Notifications {
         )
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_ANSWERS, "Answers to call requests", NotificationManager.IMPORTANCE_LOW)
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_BATTERY_LOW, "Battery low (below 25%)", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Your child's phone battery is below 25%"
+            }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_BATTERY_VERY_LOW, "Battery very low (below 15%)", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Your child's phone battery is below 15%"
+            }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_BATTERY_CRITICAL, "Battery critical (below 10%)", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Your child's phone battery is below 10% and needs charging now"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 600, 250, 600, 250, 600)
+            }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_BATTERY_PLUG, "Battery charging or unplugged", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Updates a battery alert when the phone is plugged in or out"
+            }
+        )
+    }
+
+    /**
+     * A battery alert ([level] low, very_low or critical), or, after one, the phone being plugged
+     * in or out (charging, unplugged), which quietly updates the alert if it is still showing.
+     */
+    fun showBattery(context: Context, level: String, percent: Int, childName: String) {
+        val nm = manager(context)
+        val name = childName.ifBlank { "Your child" }
+        val plug = level == "charging" || level == "unplugged"
+        if (plug && nm.activeNotifications.none { it.id == BATTERY_ID }) return
+        channels(context)
+        val (channel, title, text) = when (level) {
+            "critical" -> Triple(CHANNEL_BATTERY_CRITICAL, "$name's battery is critical: $percent%", "Charge it now, or the phone will switch off.")
+            "very_low" -> Triple(CHANNEL_BATTERY_VERY_LOW, "$name's battery is very low: $percent%", "The phone needs charging soon.")
+            "low" -> Triple(CHANNEL_BATTERY_LOW, "$name's battery is low: $percent%", "Time to charge the phone.")
+            "charging" -> Triple(CHANNEL_BATTERY_PLUG, "$name's phone is charging", "It was plugged in at $percent%.")
+            "unplugged" -> Triple(CHANNEL_BATTERY_PLUG, "$name's phone was unplugged", "The battery is at $percent%. It still needs charging.")
+            else -> return
+        }
+        nm.notify(
+            BATTERY_ID,
+            Notification.Builder(context, channel)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setCategory(Notification.CATEGORY_STATUS)
+                .setContentIntent(openApp(context))
+                .setAutoCancel(true)
+                .apply { if (level == "critical") setColor(0xFFE11D48.toInt()) }
+                .build(),
         )
     }
 

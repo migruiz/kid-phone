@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import ovh.tenjo.kidphone.parent.Battery
 import ovh.tenjo.kidphone.parent.Child
 import ovh.tenjo.kidphone.parent.Hub
 import ovh.tenjo.kidphone.parent.HubState
@@ -268,12 +269,33 @@ private fun ChildCard(child: Child?, error: String?) {
             Column {
                 Text(title, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
                 if (text.isNotBlank()) Text(text, fontSize = 15.sp, color = Muted)
+                child?.battery?.takeIf { error == null }?.let { BatteryLine(it) }
                 child?.appVersion?.takeIf { it > 0 && error == null }?.let {
                     Text("Kid Phone ${versionName(it)}", fontSize = 13.sp, color = Muted)
                 }
             }
         }
     }
+}
+
+/** "Battery 23%, charging", red below 15% and orange below 25%, with its age once it's old. */
+@Composable
+private fun BatteryLine(battery: Battery) {
+    val color = when {
+        battery.charging -> Ink
+        battery.percent < 15 -> Danger
+        battery.percent < 25 -> Color(0xFFC2410C)
+        else -> Ink
+    }
+    val parts = listOfNotNull(
+        "Battery ${battery.percent}%",
+        "charging".takeIf { battery.charging },
+        ago(battery.agoMs).takeIf { battery.agoMs >= 15 * 60_000 },
+    )
+    Text(
+        parts.joinToString(", "), fontSize = 15.sp, color = color,
+        fontWeight = if (color == Ink) FontWeight.SemiBold else FontWeight.ExtraBold,
+    )
 }
 
 private data class Quad(val bg: Color, val dot: Color, val title: String, val text: String)

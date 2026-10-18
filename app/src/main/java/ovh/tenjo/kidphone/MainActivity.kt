@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 import ovh.tenjo.kidphone.call.CallManager
 import ovh.tenjo.kidphone.data.Contact
 import ovh.tenjo.kidphone.data.Store
+import ovh.tenjo.kidphone.hub.BatteryReport
 import ovh.tenjo.kidphone.hub.HomeStatus
 import ovh.tenjo.kidphone.hub.KidRequest
 import ovh.tenjo.kidphone.hub.Hub
@@ -102,6 +103,7 @@ open class MainActivity : ComponentActivity() {
     private var asking by mutableStateOf<Asking?>(null)
     private var callTimeBusy by mutableStateOf(false)
     private var callTimeError by mutableStateOf<String?>(null)
+    private var batteryAtOnce by mutableStateOf(true)
 
     /** Set while unlocking, so the screen doesn't lock itself again on the way out. */
     private var leaving = false
@@ -110,6 +112,10 @@ open class MainActivity : ComponentActivity() {
     private val isHomeScreen: Boolean get() = this is HomeActivity
 
     private val dialerRequest =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { refresh() }
+
+    /** Android's "let it run in the background?" for the battery alerts; refreshes the notice after. */
+    private val batteryRequest =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { refresh() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -169,6 +175,7 @@ open class MainActivity : ComponentActivity() {
         locked = store.locked
         hasPin = store.hasPin()
         setupDone = store.setupDone
+        batteryAtOnce = BatteryReport.goesOutAtOnce(this)
     }
 
     private fun maybeLock() {
@@ -415,6 +422,11 @@ open class MainActivity : ComponentActivity() {
                         childName = childName,
                         onChildName = store::saveChildName,
                         onFixDialer = ::fixDialer,
+                        batteryAlertsLate = home != HomeStatus.NotSetUp && !batteryAtOnce,
+                        onFixBatteryAlerts = {
+                            runCatching { batteryRequest.launch(BatteryReport.goOutAtOnceRequest(this)) }
+                                .onFailure { Toast.makeText(this, "This phone did not allow it: ${it.message}", Toast.LENGTH_LONG).show() }
+                        },
                         onBackToKid = { screen = Screen.Home },
                         onRemove = ::removeAndLeave,
                     )

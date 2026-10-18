@@ -25,7 +25,11 @@ import androidx.core.content.ContextCompat
 
 data class BatteryInfo(val percent: Int, val charging: Boolean)
 
-private fun parseBattery(intent: Intent?): BatteryInfo {
+/** The battery right now (the system keeps the last battery broadcast). */
+fun currentBattery(context: Context): BatteryInfo =
+    parseBattery(context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)))
+
+fun parseBattery(intent: Intent?): BatteryInfo {
     if (intent == null) return BatteryInfo(-1, false)
     val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
     val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
@@ -40,9 +44,7 @@ private fun parseBattery(intent: Intent?): BatteryInfo {
 @Composable
 fun rememberBattery(): BatteryInfo {
     val context = LocalContext.current
-    var info by remember {
-        mutableStateOf(parseBattery(context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))))
-    }
+    var info by remember { mutableStateOf(currentBattery(context)) }
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, intent: Intent) {

@@ -136,6 +136,7 @@ object Hub {
             .remove(KEY_APPS_SENT) // a new hub needs the whole list, with icons
             .remove(KEY_ICONS_SENT)
             .apply()
+        BatteryReport.forgetSent(app)
         version = -1
         _status.value = HomeStatus.Checking
         wake.trySend(Unit)
@@ -200,6 +201,12 @@ object Hub {
         val updated = if (allowed) _allowed.value + packageName else _allowed.value - packageName
         _allowed.value = updated
         prefs.edit().putStringSet(KEY_ALLOWED, updated).apply()
+    }
+
+    /** Tells the hub the battery level, so it can alert the parents when it runs low (see BatteryReport). */
+    suspend fun reportBattery(percent: Int, charging: Boolean) = withContext(Dispatchers.IO) {
+        Http.put(url("/kid/battery"), JSONObject().put("percent", percent).put("charging", charging), token, timeoutMs = 8_000)
+        Unit
     }
 
     /** Stops waiting for an answer. */
@@ -334,6 +341,7 @@ object Hub {
                 if (!isSetUp) continue // the hub forgot this phone
                 if (ok) {
                     failures = 0
+                    if (_status.value != HomeStatus.AtHome) BatteryReport.backHome(app)
                     _status.value = HomeStatus.AtHome
                     // The long-poll paces the loop; only a quick answer needs a short pause.
                     if (SystemClock.elapsedRealtime() - started < 1_000) delay(1_000)

@@ -5,6 +5,7 @@ child's phone) and Kid Phone Parent (the parents' phones):
 
 - it keeps the list of apps installed on the child's phone and which ones the parents allow;
 - it keeps "ask first" call requests and the parents' answers;
+- it keeps the child's battery level and decides when it is low enough to tell the parents;
 - it alerts the parents' phones through Firebase Cloud Messaging (FCM).
 
 ## Two ports, two audiences
@@ -129,6 +130,24 @@ as decided by "A parent on the child's phone"; the parents get `request_closed` 
 Body: `{"minutes":10}` → same as `POST /parent/requests/{id}/change`, done by "A parent on the
 child's phone" (behind its PIN).
 
+### `PUT /kid/battery`
+Body: `{"percent":23,"charging":false}` → `200 {"ok":true}` · `400` (`percent` not a whole number
+from 0 to 100, or `charging` not a boolean).
+The child's phone sends this whenever the level or the plug changes (`charging` means plugged in),
+screen on or off; away from home it can't, and sends the current reading once it is back. The hub
+alerts every parent with a `battery` message (see FCM below):
+
+- **Below 25%** `low`, **below 15%** `very_low`, **below 10%** `critical`. Each line alerts once per
+  drop. When a report is past several lines at once, only the most severe one alerts.
+- **Never while plugged in.** Unplugging while below a line that hasn't alerted yet alerts.
+- **A line alerts again** only after the phone has charged back up to it (a report with
+  `charging:true` at or above the line), or a report is at least 3 points above it (charged away
+  from home). So a loose cable or a point of wobble doesn't repeat an alert.
+- **Plugged in or out while an alert is out** (a line has alerted and the phone hasn't charged back
+  above it): `charging` or `unplugged`, so the parents' notification can follow.
+
+What has alerted is saved before the answer goes out, so a hub restart never repeats an alert.
+
 ## Parent routes (port 8775)
 
 ### `POST /parent/pair`
@@ -143,7 +162,8 @@ Body: `{"fcmToken":"..."}` → `200 {"ok":true}`. Called when FCM rotates the to
 
 ### `GET /parent/state`
 ```json
-{"child":{"name":"Alejandro","paired":true,"lastSeen":<epoch ms or null>,"appVersion":10100},
+{"child":{"name":"Alejandro","paired":true,"lastSeen":<epoch ms or null>,"appVersion":10100,
+          "battery":{"percent":23,"charging":false,"at":<epoch ms>}},
  "apps":[{"package":"com.duolingo","label":"Duolingo","allowed":true,"installed":true,"hasIcon":true}],
  "requests":[{"id":"r_ab12","contactName":"Pablo","number":"0871234567","status":"approved",
               "createdAt":<ms>,"decidedBy":"Miguel","minutes":30,"remainingSeconds":1740}],
@@ -153,7 +173,8 @@ Body: `{"fcmToken":"..."}` → `200 {"ok":true}`. Called when FCM rotates the to
 Apps sorted by label (installed first). `requests`: pending ones and the last 20 others, newest first.
 In a request, `decidedBy` and `minutes` are `null` until a parent answers (`minutes` `0` means
 rejected). `remainingSeconds` is only on `approved` (`0` once the time is up). `child.paired` is
-true once a child phone has registered.
+true once a child phone has registered. `child.battery` is the last battery report (`at` is when it
+came), or `null` before the first one.
 
 ### `GET /parent/apps/{package}/icon`
 → `200 image/png` (with `Cache-Control: private, max-age=86400`, so Cloudflare never caches it) · `404`
@@ -192,10 +213,12 @@ version, so the child's phone hears it at once while it is at home.
 {"type":"call_request","id":"r_ab12","childName":"Alejandro","contactName":"Pablo",
  "number":"0871234567","expiresAt":"<epoch ms as string>"}
 {"type":"request_closed","id":"r_ab12","status":"approved","minutes":"30","by":"Miguel"}
+{"type":"battery","level":"very_low","percent":"14","childName":"Alejandro"}
 ```
 (All FCM data values are strings.) In `request_closed`, `status` is `approved`, `rejected`,
 `expired` or `cancelled`. `minutes` is `"0"` unless approved, and `by` is `""` when no parent
-decided (expired, cancelled). Tokens that FCM reports as `UNREGISTERED` / `NOT_FOUND` are removed
+decided (expired, cancelled). In `battery`, `level` is `low`, `very_low` or `critical` (an alert),
+or `charging` / `unplugged` (the plug changed while an alert was out; see `PUT /kid/battery`). Tokens that FCM reports as `UNREGISTERED` / `NOT_FOUND` are removed
 from that parent.
 
 ## Storage

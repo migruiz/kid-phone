@@ -101,6 +101,9 @@ fun ParentMenu(
     childName: String,
     onChildName: (String) -> Unit,
     onFixDialer: () -> Unit,
+    /** Battery alerts are on (a hub is set up) but Android may hold them back with the screen off. */
+    batteryAlertsLate: Boolean,
+    onFixBatteryAlerts: () -> Unit,
     onBackToKid: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -153,6 +156,27 @@ fun ParentMenu(
                             color = Color(0xFF92400E), fontSize = 15.sp,
                         )
                     }
+                }
+            }
+        }
+
+        if (batteryAlertsLate) {
+            Spacer(Modifier.height(12.dp))
+            Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFFFFF1D6), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = Color(0xFFB45309))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Battery alerts can be late", fontWeight = FontWeight.ExtraBold, color = Color(0xFF92400E), fontSize = 17.sp)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "While the screen is off, Android holds back the low-battery alerts to your phones, " +
+                            "sometimes for hours. Allow Kid Phone to run in the background to send them at once.",
+                        color = Color(0xFF92400E), fontSize = 15.sp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    BigButton("Allow", onFixBatteryAlerts, container = Color(0xFFB45309))
                 }
             }
         }

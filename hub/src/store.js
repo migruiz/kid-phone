@@ -23,6 +23,7 @@ function freshState() {
     parents: [], // { name, tokenHash, fcmToken, appVersion, pairedAt }
     apps: {}, // package -> { label, allowed, installed, icon (short hash of the PNG) or null }
     requests: [], // see hub.js
+    battery: null, // the child's last battery report: { percent, charging, at, alerted } (see hub.js)
   };
 }
 

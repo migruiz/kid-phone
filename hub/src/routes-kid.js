@@ -67,6 +67,18 @@ export function kidRoutes(hub) {
     },
     { method: 'POST', path: '/kid/requests/:id/cancel', handle: ({ params }) => hub.cancelRequest(params.id) },
     {
+      method: 'PUT',
+      path: '/kid/battery',
+      handle: ({ body }) => {
+        const { percent, charging } = body;
+        if (!Number.isInteger(percent) || percent < 0 || percent > 100) {
+          throw new HttpError(400, 'bad_request', '"percent" must be a whole number from 0 to 100');
+        }
+        if (typeof charging !== 'boolean') throw new HttpError(400, 'bad_request', '"charging" must be true or false');
+        return hub.reportBattery({ percent, charging });
+      },
+    },
+    {
       // A parent who is with the child answers on the child's phone, after typing its PIN there.
       method: 'POST',
       path: '/kid/requests/:id/answer',
