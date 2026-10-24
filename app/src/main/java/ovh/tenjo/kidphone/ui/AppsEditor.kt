@@ -30,13 +30,14 @@ import kotlinx.coroutines.launch
 import ovh.tenjo.kidphone.hub.Apps
 import ovh.tenjo.kidphone.hub.HomeStatus
 import ovh.tenjo.kidphone.hub.Hub
+import ovh.tenjo.kidphone.hub.LaunchableApp
 
 /** One line about the apps for the parent menu. */
-fun appsSummary(allowed: Set<String>, status: HomeStatus): String = when {
+fun appsSummary(allowed: Set<String>, timed: Int, status: HomeStatus): String = when {
     status == HomeStatus.NotSetUp -> "Needs the home hub"
     allowed.isEmpty() -> "None switched on"
-    allowed.size == 1 -> "1 switched on"
-    else -> "${allowed.size} switched on"
+    allowed.size == 1 -> "1 switched on" + if (timed > 0) ", for a while" else ""
+    else -> "${allowed.size} switched on" + if (timed > 0) ", $timed for a while" else ""
 }
 
 /**
@@ -44,19 +45,40 @@ fun appsSummary(allowed: Set<String>, status: HomeStatus): String = when {
  * go through the hub, so both stay the same; that needs the home Wi-Fi.
  */
 @Composable
-fun AppsEditor(allowed: Set<String>, status: HomeStatus, onBack: () -> Unit) {
+fun AppsEditor(allowed: Set<String>, ends: Map<String, Long>, status: HomeStatus, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val apps = remember { Apps.launchable(context) }
     // Switches flipped here show at once, before the hub confirms.
     val pending = remember { mutableStateMapOf<String, Boolean>() }
     var error by remember { mutableStateOf<String?>(null) }
+    var timing by remember { mutableStateOf<LaunchableApp?>(null) }
     val canChange = status == HomeStatus.AtHome
+
+    fun change(app: LaunchableApp, on: Boolean, minutes: Int?) {
+        pending[app.packageName] = on
+        error = null
+        scope.launch {
+            runCatching { Hub.setAllowed(app.packageName, on, minutes) }.onFailure { error = it.message }
+            pending.remove(app.packageName)
+        }
+    }
+
+    timing?.let { app ->
+        AppTimeDialog(
+            label = app.label,
+            allowed = app.packageName in allowed,
+            endsAt = ends[app.packageName],
+            onChoose = { on, minutes -> timing = null; change(app, on, minutes) },
+            onDismiss = { timing = null },
+        )
+    }
 
     ParentPage {
         ScreenHeader(
             "Apps", onBack,
             subtitle = "Apps switched on here appear when he taps Apps. They only open on the home Wi-Fi. " +
+                "The timer button switches one on for a while; he sees a countdown before it closes. " +
                 "Kid Phone Parent shows the same list.",
         )
         val notice = when (status) {
@@ -86,15 +108,10 @@ fun AppsEditor(allowed: Set<String>, status: HomeStatus, onBack: () -> Unit) {
                     installed = true,
                     allowed = pending[app.packageName] ?: (app.packageName in allowed),
                     enabled = canChange && app.packageName !in pending,
+                    endsAt = ends[app.packageName],
+                    onTime = { timing = app },
                     icon = { icon?.let { Image(it, contentDescription = null, modifier = Modifier.size(42.dp)) } },
-                    onToggle = { on ->
-                        pending[app.packageName] = on
-                        error = null
-                        scope.launch {
-                            runCatching { Hub.setAllowed(app.packageName, on) }.onFailure { error = it.message }
-                            pending.remove(app.packageName)
-                        }
-                    },
+                    onToggle = { on -> change(app, on, null) },
                 )
             }
         }

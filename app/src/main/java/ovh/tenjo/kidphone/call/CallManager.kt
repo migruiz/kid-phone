@@ -1,9 +1,13 @@
 package ovh.tenjo.kidphone.call
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.telecom.Call
 import android.telecom.CallAudioState
 import android.telecom.InCallService
@@ -29,20 +33,37 @@ data class CallInfo(
     val incoming: Boolean,
     val connectedAt: Long?,
     val speaker: Boolean,
+    /** Hang up was tapped while the call was still being set up; it ends as soon as it can. */
+    val hangingUp: Boolean = false,
 )
 
 /** Keeps track of the call in progress and carries out the call screen's buttons. */
 object CallManager {
     private const val TAG = "KidPhone"
 
+    /** A call going out before it is dialling: picking a SIM, or being set up. */
+    private val SETTING_UP = setOf(Call.STATE_NEW, Call.STATE_SELECT_PHONE_ACCOUNT, Call.STATE_CONNECTING)
+    private val ENDING = setOf(Call.STATE_DISCONNECTING, Call.STATE_DISCONNECTED)
+    private const val SETTING_UP_GRACE_MS = 5_000L
+
     private val calls = mutableListOf<Call>()
 
     /** The button last tapped on the kid screen, so its call shows the right person. */
     private var lastTapped: Contact? = null
 
+    /** When the last call from a button started, to ignore the second tap of a double tap. */
+    private var lastPlacedAt = 0L
+
     fun placeCall(context: Context, contact: Contact): PlaceResult {
+        // A call is already going, or one is just starting: show it rather than start another.
+        if (hasLiveCall || SystemClock.elapsedRealtime() - lastPlacedAt < 2_000) {
+            if (hasLiveCall) showCallScreen(context)
+            return PlaceResult.Ok
+        }
         lastTapped = contact
-        return placeCall(context, contact.number)
+        return placeCall(context, contact.number).also {
+            if (it == PlaceResult.Ok) lastPlacedAt = SystemClock.elapsedRealtime()
+        }
     }
     private var speaker = false
     internal var service: InCallService? = null
@@ -51,9 +72,17 @@ object CallManager {
     private val _current = MutableStateFlow<CallInfo?>(null)
     val current: StateFlow<CallInfo?> = _current
 
+    /** A call whose Hang up was tapped before it was dialling (see [hangUp]). */
+    private var hangUpWhenDialing: Call? = null
+    private val handler = Handler(Looper.getMainLooper())
+
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
             if (state == Call.STATE_SELECT_PHONE_ACCOUNT) pickSim(call)
+            if (call === hangUpWhenDialing && state !in SETTING_UP) {
+                hangUpWhenDialing = null
+                if (state != Call.STATE_DISCONNECTED) call.disconnect()
+            }
             publish()
         }
 
@@ -61,6 +90,20 @@ object CallManager {
     }
 
     val hasCalls: Boolean get() = calls.isNotEmpty()
+
+    /**
+     * A call is ringing, going out or going on (not one that is only ending). Kept up to date by
+     * [publish], so it can be read from any thread.
+     */
+    @Volatile
+    var hasLiveCall: Boolean = false
+        private set
+
+    /** Opens the call screen, or brings it back to the front. */
+    fun showCallScreen(context: Context) {
+        val screen = Intent(context, InCallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(screen) }.onFailure { Log.e(TAG, "Could not open call screen", it) }
+    }
 
     fun stateOf(call: Call): Int =
         if (Build.VERSION.SDK_INT >= 31) call.details.state else @Suppress("DEPRECATION") call.state
@@ -78,7 +121,22 @@ object CallManager {
     internal fun remove(call: Call) {
         call.unregisterCallback(callback)
         calls -= call
+        if (hangUpWhenDialing === call) hangUpWhenDialing = null
         if (calls.isEmpty()) speaker = false
+        publish()
+    }
+
+    /**
+     * Android stopped using our call service. Any call still listed is no longer ours to show,
+     * and keeping it would block every later caller and could leave a sound playing.
+     */
+    internal fun forgetAll() {
+        if (calls.isEmpty()) return
+        Log.w(TAG, "Call service closed with ${calls.size} call(s) still listed; forgetting them")
+        calls.forEach { it.unregisterCallback(callback) }
+        calls.clear()
+        hangUpWhenDialing = null
+        speaker = false
         publish()
     }
 
@@ -92,6 +150,7 @@ object CallManager {
         calls.firstOrNull { stateOf(it) == Call.STATE_RINGING } ?: calls.lastOrNull()
 
     private fun publish() {
+        hasLiveCall = calls.any { stateOf(it) !in ENDING }
         val call = primary()
         if (call == null) {
             _current.value = null
@@ -102,7 +161,8 @@ object CallManager {
         }
         // Ringing sound while our call goes out, until it is answered or ends.
         val state = stateOf(call)
-        val goingOut = call.details.callDirection == Call.Details.DIRECTION_OUTGOING &&
+        val hangingUp = call === hangUpWhenDialing
+        val goingOut = call.details.callDirection == Call.Details.DIRECTION_OUTGOING && !hangingUp &&
             (state == Call.STATE_DIALING || state == Call.STATE_CONNECTING)
         if (goingOut) Ringback.start() else Ringback.stop()
         val number = numberOf(call).orEmpty()
@@ -119,6 +179,7 @@ object CallManager {
             incoming = call.details.callDirection == Call.Details.DIRECTION_INCOMING,
             connectedAt = call.details.connectTimeMillis.takeIf { it > 0 },
             speaker = speaker,
+            hangingUp = hangingUp,
         )
         if (calls.none { stateOf(it) == Call.STATE_RINGING }) {
             Ringer.stop()
@@ -133,9 +194,29 @@ object CallManager {
         primary()?.answer(VideoProfile.STATE_AUDIO_ONLY)
     }
 
+    /**
+     * Ends the call, or turns down a ringing one. A call still being set up (the first moment
+     * after tapping a button) is hung up as soon as it is dialling instead: ending it before
+     * then can leave some phones dialling with no call left on screen, so nobody can stop it.
+     */
     fun hangUp() {
         val call = primary() ?: return
-        if (stateOf(call) == Call.STATE_RINGING) call.reject(false, null) else call.disconnect()
+        when (stateOf(call)) {
+            Call.STATE_RINGING -> call.reject(false, null)
+            in SETTING_UP -> {
+                if (hangUpWhenDialing === call) return
+                hangUpWhenDialing = call
+                // If it never gets to dialling, end it anyway.
+                handler.postDelayed({
+                    if (hangUpWhenDialing === call) {
+                        hangUpWhenDialing = null
+                        call.disconnect()
+                    }
+                }, SETTING_UP_GRACE_MS)
+                publish()
+            }
+            else -> call.disconnect()
+        }
     }
 
     @Suppress("DEPRECATION") // setAudioRoute still works on every version this app supports

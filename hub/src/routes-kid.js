@@ -1,6 +1,6 @@
 // Port 8774: the child's phone, home network only (see net.js).
 
-import { HttpError, MB, optionalString, requiredString } from './http.js';
+import { HttpError, MB, appSwitch, optionalString, requiredString } from './http.js';
 import { isValidPackage } from './store.js';
 
 function checkApps(body) {
@@ -54,8 +54,8 @@ export function kidRoutes(hub) {
       method: 'PUT',
       path: '/kid/apps/:package',
       handle: ({ params, body }) => {
-        if (typeof body.allowed !== 'boolean') throw new HttpError(400, 'bad_request', '"allowed" must be true or false');
-        return hub.setAllowed({ name: "the child's phone" }, params.package, body.allowed);
+        const { allowed, minutes } = appSwitch(body);
+        return hub.setAllowed({ name: "the child's phone" }, params.package, allowed, minutes);
       },
     },
     { method: 'GET', path: '/kid/state', handle: getState },

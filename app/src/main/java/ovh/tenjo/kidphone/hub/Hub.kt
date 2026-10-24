@@ -30,6 +30,7 @@ import ovh.tenjo.kidphone.data.Store
 import ovh.tenjo.kidphone.kiosk.Kiosk
 import ovh.tenjo.kidphone.shared.Http
 import ovh.tenjo.kidphone.shared.HttpError
+import kotlin.math.abs
 
 /** Whether this phone can reach the home hub, which means it is on the home Wi-Fi. */
 enum class HomeStatus {
@@ -70,6 +71,10 @@ object Hub {
     private const val KEY_APPS_SENT = "appsSent"
     private const val KEY_ICONS_SENT = "iconsSent"
     private const val KEY_WINDOWS = "callWindows"
+    private const val KEY_APP_ENDS = "appEnds"
+
+    /** Two end times closer than this are the same one, heard again a little later. */
+    private const val SAME_END_MS = 5_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val wake = Channel<Unit>(Channel.CONFLATED)
@@ -80,9 +85,28 @@ object Hub {
     private val _status = MutableStateFlow(HomeStatus.NotSetUp)
     val status: StateFlow<HomeStatus> = _status
 
-    /** The apps the parents allow (installed or not), as last heard from the hub. */
+    /**
+     * The apps switched on (installed or not), as last heard from the hub, and when the time is
+     * up for those switched on for a while (package → wall clock on this phone). Kept together so
+     * both always change at once.
+     */
+    private data class Switches(val on: Set<String>, val ends: Map<String, Long>)
+    private val switches = MutableStateFlow(Switches(emptySet(), emptyMap()))
+
+    /** Goes up when the screen comes on, so time that passed in deep sleep is caught up at once. */
+    private val wokeUp = MutableStateFlow(0)
+    val screenOns: StateFlow<Int> = wokeUp
+
+    /**
+     * The apps he may open now: switched on, and with time left. An app's time running out takes
+     * it off at once, on this phone's own clock, even away from the hub.
+     */
     private val _allowed = MutableStateFlow<Set<String>>(emptySet())
     val allowed: StateFlow<Set<String>> = _allowed
+
+    /** Of the apps he may open now, those with a time: package → when it is up (wall clock). */
+    private val _appEnds = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val appEnds: StateFlow<Map<String, Long>> = _appEnds
 
     /**
      * True while allowed apps may open: on the home Wi-Fi, or only just left it. Off for
@@ -184,12 +208,15 @@ object Hub {
     }
 
     /**
-     * A parent switched an app on or off in Kid Phone's parent menu. Goes through the hub, so the
-     * parent app shows the same; needs the home Wi-Fi. Throws with a readable message.
+     * A parent switched an app on or off in Kid Phone's parent menu: on for [minutes] from now,
+     * or with no time limit when null. Goes through the hub, so the parent app shows the same;
+     * needs the home Wi-Fi. Throws with a readable message.
      */
-    suspend fun setAllowed(packageName: String, allowed: Boolean) = withContext(Dispatchers.IO) {
+    suspend fun setAllowed(packageName: String, allowed: Boolean, minutes: Int? = null) = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("allowed", allowed)
+        if (allowed && minutes != null) body.put("minutes", minutes)
         try {
-            Http.put(url("/kid/apps/$packageName"), JSONObject().put("allowed", allowed), token, timeoutMs = 8_000)
+            Http.put(url("/kid/apps/$packageName"), body, token, timeoutMs = 8_000)
         } catch (e: HttpError) {
             poke() // most likely an app the hub hasn't heard of yet
             throw IllegalStateException(
@@ -198,9 +225,26 @@ object Hub {
         } catch (e: java.io.IOException) {
             throw IllegalStateException("Couldn't reach the hub. Changing apps needs the home Wi-Fi.")
         }
-        val updated = if (allowed) _allowed.value + packageName else _allowed.value - packageName
-        _allowed.value = updated
-        prefs.edit().putStringSet(KEY_ALLOWED, updated).apply()
+        val s = switches.value
+        setSwitches(
+            on = if (allowed) s.on + packageName else s.on - packageName,
+            ends = if (allowed && minutes != null) {
+                s.ends + (packageName to System.currentTimeMillis() + minutes * 60_000L)
+            } else {
+                s.ends - packageName
+            },
+        )
+        wake.trySend(Unit)
+    }
+
+    private fun setSwitches(on: Set<String>, ends: Map<String, Long>) {
+        val fresh = Switches(on, ends.filterKeys { it in on })
+        if (fresh == switches.value) return
+        switches.value = fresh
+        prefs.edit()
+            .putStringSet(KEY_ALLOWED, fresh.on)
+            .putString(KEY_APP_ENDS, JSONObject(fresh.ends as Map<*, *>).toString())
+            .apply()
     }
 
     /** Tells the hub the battery level, so it can alert the parents when it runs low (see BatteryReport). */
@@ -290,7 +334,13 @@ object Hub {
     fun watch(context: Context) {
         if (::app.isInitialized) return
         app = context.applicationContext
-        _allowed.value = prefs.getStringSet(KEY_ALLOWED, emptySet()).orEmpty().toSet()
+        switches.value = Switches(
+            on = prefs.getStringSet(KEY_ALLOWED, emptySet()).orEmpty().toSet(),
+            ends = runCatching {
+                val o = JSONObject(prefs.getString(KEY_APP_ENDS, null) ?: "{}")
+                o.keys().asSequence().associateWith { o.getLong(it) }
+            }.getOrDefault(emptyMap()),
+        )
         _windows.value = runCatching {
             val o = JSONObject(prefs.getString(KEY_WINDOWS, null) ?: "{}")
             o.keys().asSequence().associateWith { o.getLong(it) }.filterValues { it > System.currentTimeMillis() }
@@ -298,10 +348,28 @@ object Hub {
         _status.value = if (isSetUp) HomeStatus.Checking else HomeStatus.NotSetUp
         app.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == Intent.ACTION_SCREEN_ON && isSetUp) _status.value = HomeStatus.Checking
+                if (intent.action == Intent.ACTION_SCREEN_ON) {
+                    if (isSetUp) _status.value = HomeStatus.Checking
+                    wokeUp.value++
+                }
                 wake.trySend(Unit)
             }
         }, IntentFilter().apply { addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF) })
+
+        // The apps he may open now: an app goes the moment its time is up. Timers don't run in
+        // deep sleep, so this looks again whenever the screen comes on.
+        scope.launch {
+            combine(switches, wokeUp) { s, _ -> s }.collectLatest { s ->
+                while (true) {
+                    val now = System.currentTimeMillis()
+                    val open = s.on.filterTo(mutableSetOf()) { (s.ends[it] ?: Long.MAX_VALUE) > now }
+                    _appEnds.value = s.ends.filterKeys { it in open }
+                    _allowed.value = open
+                    val next = _appEnds.value.values.minOrNull() ?: break
+                    delay(next - now)
+                }
+            }
+        }
         app.getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(
             object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) { wake.trySend(Unit) }
@@ -359,12 +427,19 @@ object Hub {
     private fun fetchState(): Boolean = try {
         val json = Http.get(url("/kid/state?since=$version&wait=25"), token, timeoutMs = 35_000)
         version = json.optLong("version", -1)
-        val allowed = json.optJSONArray("allowedPackages").strings().toSet()
-        if (allowed != _allowed.value) {
-            _allowed.value = allowed
-            prefs.edit().putStringSet(KEY_ALLOWED, allowed).apply()
-        }
         val now = System.currentTimeMillis()
+        val allowed = json.optJSONArray("allowedPackages").strings().toSet()
+        // Times are relative, so the phone and Pi clocks don't need to agree. The same end heard
+        // again a moment later keeps the time it had, so the countdown on screen doesn't jump.
+        val times = json.optJSONArray("appTimes")
+        val ends = (0 until (times?.length() ?: 0)).associate { i ->
+            val o = times!!.getJSONObject(i)
+            val pkg = o.getString("package")
+            val heard = now + o.getLong("remainingSeconds") * 1000
+            val known = switches.value.ends[pkg]
+            pkg to if (known != null && abs(known - heard) < SAME_END_MS) known else heard
+        }
+        setSwitches(allowed, ends)
         val requests = json.optJSONArray("requests")
         merge((0 until (requests?.length() ?: 0)).map { parseRequest(requests!!.getJSONObject(it), now) }, replaceAll = true)
         true

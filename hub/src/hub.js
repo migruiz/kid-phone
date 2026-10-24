@@ -18,6 +18,8 @@ export const LIMITS = {
 };
 
 const ANSWER_MINUTES = [0, 10, 30, 60];
+// An app can be switched on for a while: any whole number of minutes up to a day.
+export const MAX_APP_MINUTES = 24 * 60;
 
 // Battery alerts to the parents, most severe first: one alert per line as the battery drops below it.
 export const BATTERY_LINES = [
@@ -66,7 +68,8 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     return request;
   };
 
-  const remainingSeconds = (r, now) => Math.max(0, Math.ceil((r.approvedUntil - now) / 1000));
+  const secondsUntil = (t, now) => Math.max(0, Math.ceil((t - now) / 1000));
+  const remainingSeconds = (r, now) => secondsUntil(r.approvedUntil, now);
   const isOpen = (r, now) => r.status === 'pending' || (r.status === 'approved' && r.approvedUntil > now);
 
   // ---------- the kid state answer and its version ----------
@@ -76,6 +79,17 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
       .filter(([, app]) => app.allowed)
       .map(([pkg]) => pkg)
       .sort();
+  }
+
+  /** Apps switched on for a while (allowedUntil set), as [package, app], by package. */
+  function timedApps() {
+    return Object.entries(state.apps)
+      .filter(([, app]) => app.allowed && app.allowedUntil)
+      .sort(([a], [b]) => a.localeCompare(b));
+  }
+
+  function appTimes(now) {
+    return timedApps().map(([pkg, app]) => ({ package: pkg, remainingSeconds: secondsUntil(app.allowedUntil, now), minutes: app.minutes }));
   }
 
   function kidRequests(now) {
@@ -95,7 +109,11 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
 
   // Everything in the kid answer except the ticking remainingSeconds. When it changes, the version goes up.
   function fingerprint(now) {
-    return JSON.stringify([allowedPackages(), kidRequests(now).map((r) => [r.id, r.status, r.minutes, r.approvedUntil])]);
+    return JSON.stringify([
+      allowedPackages(),
+      timedApps().map(([pkg, app]) => [pkg, app.allowedUntil, app.minutes]),
+      kidRequests(now).map((r) => [r.id, r.status, r.minutes, r.approvedUntil]),
+    ]);
   }
 
   /** After any change: bump the version if the kid answer changed, save, wake long-polls, re-arm the timer. */
@@ -122,7 +140,21 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
         notifyParents(closedMessage(r));
       }
     }
+    for (const [pkg, app] of timedApps()) {
+      if (app.allowedUntil <= now) {
+        switchApp(app, false, null, now);
+        changed = true;
+        log(`${pkg} switched off: its time is up`);
+      }
+    }
     return changed;
+  }
+
+  /** Switches an app on (for `minutes`, or with no time limit when null) or off. */
+  function switchApp(app, allowed, minutes, now) {
+    app.allowed = allowed;
+    app.allowedUntil = allowed && minutes ? now + minutes * MINUTE : null;
+    app.minutes = allowed && minutes ? minutes : null;
   }
 
   /** Brings everything up to date with the clock (in case a timer is late or the hub was off). */
@@ -144,6 +176,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
         if (t > now) next = Math.min(next, t);
       }
     }
+    for (const [, app] of timedApps()) next = Math.min(next, app.allowedUntil);
     if (next !== Infinity) {
       timer = clock.setTimer(() => {
         timer = null;
@@ -310,7 +343,12 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
   function kidState() {
     refresh();
     const now = clock.now();
-    return { version: state.version, allowedPackages: allowedPackages(), requests: kidRequests(now).map((r) => kidRequest(r, now)) };
+    return {
+      version: state.version,
+      allowedPackages: allowedPackages(),
+      appTimes: appTimes(now),
+      requests: kidRequests(now).map((r) => kidRequest(r, now)),
+    };
   }
 
   function createRequest({ contactName, number }) {
@@ -476,7 +514,14 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     refresh();
     const now = clock.now();
     const apps = Object.entries(state.apps)
-      .map(([pkg, a]) => ({ package: pkg, label: a.label, allowed: a.allowed, installed: a.installed, hasIcon: Boolean(a.icon) }))
+      .map(([pkg, a]) => {
+        const out = { package: pkg, label: a.label, allowed: a.allowed, installed: a.installed, hasIcon: Boolean(a.icon) };
+        if (a.allowed && a.allowedUntil) {
+          out.minutes = a.minutes;
+          out.remainingSeconds = secondsUntil(a.allowedUntil, now);
+        }
+        return out;
+      })
       .sort((x, y) => Number(y.installed) - Number(x.installed) ||
         x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }) ||
         x.package.localeCompare(y.package));
@@ -502,13 +547,22 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
 
   const readIcon = (pkg) => store.readIcon(pkg);
 
-  function setAllowed(parent, pkg, allowed) {
+  /**
+   * Switches an app on or off. On with `minutes` means for that long, counted from now (again
+   * for an app already on: an hour can become ten minutes from now); without, no time limit.
+   */
+  function setAllowed(parent, pkg, allowed, minutes = null) {
+    if (minutes !== null && !(Number.isInteger(minutes) && minutes >= 1 && minutes <= MAX_APP_MINUTES)) {
+      throw new HttpError(400, 'bad_minutes', `minutes must be a whole number from 1 to ${MAX_APP_MINUTES}`);
+    }
+    refresh();
     const app = Object.hasOwn(state.apps, pkg) ? state.apps[pkg] : null;
     if (!app) throw new HttpError(404, 'not_found', 'No such app');
-    if (app.allowed !== allowed) {
-      app.allowed = allowed;
+    const timed = allowed ? minutes : null;
+    if (app.allowed !== allowed || timed !== null || (app.allowedUntil ?? null) !== null) {
+      switchApp(app, allowed, timed, clock.now());
       commit();
-      log(`${pkg} ${allowed ? 'allowed' : 'blocked'} by ${parent.name}`);
+      log(`${pkg} ${allowed ? (timed ? `allowed for ${timed} minutes` : 'allowed') : 'blocked'} by ${parent.name}`);
     }
     return { ok: true };
   }

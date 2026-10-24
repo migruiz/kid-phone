@@ -19,6 +19,12 @@
         at once with the screen off, even in deep sleep or battery saver. Sideloaded, never on Play.
     -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!--
+        To show "10 minutes left" and the last-30-seconds countdown on top of an app the parents
+        allowed for a set time. Being the phone app grants it on Android 14; where it doesn't, a
+        parent allows it once, behind the PIN.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- To list and open the apps the parents can allow (Android 11+ hides other apps otherwise). -->
     <queries>

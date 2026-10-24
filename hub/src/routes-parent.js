@@ -1,6 +1,6 @@
 // Port 8775: the parents' phones, reached from the internet through the Cloudflare tunnel.
 
-import { HttpError, optionalString, requiredString } from './http.js';
+import { HttpError, appSwitch, optionalString, requiredString } from './http.js';
 
 export function parentRoutes(hub) {
   function sendIcon({ res, params }) {
@@ -38,8 +38,8 @@ export function parentRoutes(hub) {
       method: 'PUT',
       path: '/parent/apps/:package',
       handle: ({ who, params, body }) => {
-        if (typeof body.allowed !== 'boolean') throw new HttpError(400, 'bad_request', '"allowed" must be true or false');
-        return hub.setAllowed(who, params.package, body.allowed);
+        const { allowed, minutes } = appSwitch(body);
+        return hub.setAllowed(who, params.package, allowed, minutes);
       },
     },
     {

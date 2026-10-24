@@ -104,6 +104,9 @@ fun ParentMenu(
     /** Battery alerts are on (a hub is set up) but Android may hold them back with the screen off. */
     batteryAlertsLate: Boolean,
     onFixBatteryAlerts: () -> Unit,
+    /** Apps can be given a time (a hub is set up) but the warnings can't float over other apps. */
+    timeWarningsHidden: Boolean,
+    onFixTimeWarnings: () -> Unit,
     onBackToKid: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -177,6 +180,29 @@ fun ParentMenu(
                     )
                     Spacer(Modifier.height(12.dp))
                     BigButton("Allow", onFixBatteryAlerts, container = Color(0xFFB45309))
+                }
+            }
+        }
+
+        if (timeWarningsHidden) {
+            Spacer(Modifier.height(12.dp))
+            Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFFFFF1D6), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = Color(0xFFB45309))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Time warnings are small", fontWeight = FontWeight.ExtraBold, color = Color(0xFF92400E), fontSize = 17.sp)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "For an app switched on for a while, he gets \"10 minutes left\", \"5 minutes left\" and a " +
+                            "countdown in the last 30 seconds. Right now they are only short pop-up messages. Find " +
+                            "Kid Phone in the list and allow it to display over other apps, so they show clearly " +
+                            "on top of the app.",
+                        color = Color(0xFF92400E), fontSize = 15.sp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    BigButton("Allow", onFixTimeWarnings, container = Color(0xFFB45309))
                 }
             }
         }

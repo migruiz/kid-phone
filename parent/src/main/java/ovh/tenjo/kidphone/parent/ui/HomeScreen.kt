@@ -57,6 +57,7 @@ import ovh.tenjo.kidphone.ui.RowDivider
 import ovh.tenjo.kidphone.ui.ScreenHeader
 import ovh.tenjo.kidphone.ui.SectionLabel
 import ovh.tenjo.kidphone.ui.SettingsRow
+import ovh.tenjo.kidphone.ui.minutesLeft
 import ovh.tenjo.kidphone.ui.UpdatesRow
 
 /** The parent app's main screen: the child's phone, and (later) its apps and call requests. */
@@ -97,7 +98,9 @@ fun HomeScreen() {
         ParentPage {
             ScreenHeader(
                 "Apps", onBack = { showApps = false },
-                subtitle = "Apps switched on here appear when $childName taps Apps. They only open on the home Wi-Fi.",
+                subtitle = "Apps switched on here appear when $childName taps Apps. They only open on the home Wi-Fi. " +
+                    "The timer button switches one on for a while: $childName sees \"10 minutes left\", " +
+                    "\"5 minutes left\" and a countdown, then it closes.",
             )
             val st = state
             if (st == null) {
@@ -105,10 +108,10 @@ fun HomeScreen() {
             } else {
                 AppsGroup(
                     apps = st.apps.map { a -> pending[a.packageName]?.let { a.copy(allowed = it) } ?: a },
-                    onToggle = { app, on ->
+                    onChange = { app, on, minutes ->
                         pending[app.packageName] = on
                         scope.launch {
-                            runCatching { Hub.setAllowed(app.packageName, on) }
+                            runCatching { Hub.setAllowed(app.packageName, on, minutes) }
                                 .onSuccess { runCatching { Hub.state() }.onSuccess { state = it } }
                                 .onFailure { info = "Couldn't change ${app.label}. Check the internet connection and try again." }
                             pending.remove(app.packageName)
@@ -164,11 +167,14 @@ fun HomeScreen() {
             Group {
                 val on = st.apps.count { it.allowed && it.installed }
                 val installed = st.apps.count { it.installed }
+                // The app whose time runs out first, if any.
+                val timed = st.apps.filter { it.allowed && it.endsAt != null }.minByOrNull { it.endsAt!! }
                 SettingsRow(
                     Icons.Rounded.Apps, Color(0xFF0A9488), "Apps $childName can open",
                     when {
                         installed == 0 -> "None on the phone yet"
                         on == 0 -> "None switched on, of $installed"
+                        timed != null -> "$on switched on · ${timed.label}: ${minutesLeft(timed.endsAt!!)} min left"
                         else -> "$on switched on, of $installed"
                     },
                     onClick = { showApps = true },

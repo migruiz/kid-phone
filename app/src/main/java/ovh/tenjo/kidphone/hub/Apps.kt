@@ -59,6 +59,12 @@ object Apps {
         }
     }.getOrNull()
 
+    /** The app's name as the phone shows it, or the package name if it isn't on the phone. */
+    fun label(context: Context, packageName: String): String = runCatching {
+        val pm = context.packageManager
+        pm.getApplicationInfo(packageName, 0).loadLabel(pm).toString().trim()
+    }.getOrNull()?.ifBlank { null } ?: packageName
+
     fun launchIntent(context: Context, packageName: String): Intent? =
         context.packageManager.getLaunchIntentForPackage(packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 }

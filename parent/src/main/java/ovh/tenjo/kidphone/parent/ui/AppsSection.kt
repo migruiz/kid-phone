@@ -41,6 +41,7 @@ import kotlinx.coroutines.withContext
 import ovh.tenjo.kidphone.parent.Hub
 import ovh.tenjo.kidphone.parent.KidApp
 import ovh.tenjo.kidphone.ui.AppSwitchRow
+import ovh.tenjo.kidphone.ui.AppTimeDialog
 import ovh.tenjo.kidphone.ui.Group
 import ovh.tenjo.kidphone.ui.Hairline
 import ovh.tenjo.kidphone.ui.Ink
@@ -48,11 +49,24 @@ import ovh.tenjo.kidphone.ui.Muted
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** The apps on the child's phone, each with a switch. */
+/**
+ * The apps on the child's phone, each with a switch and a timer button. [onChange] gets the app,
+ * on or off, and the minutes it stays on (null: no time limit).
+ */
 @Composable
-fun AppsGroup(apps: List<KidApp>, onToggle: (KidApp, Boolean) -> Unit) {
+fun AppsGroup(apps: List<KidApp>, onChange: (KidApp, Boolean, Int?) -> Unit) {
     // Apps no longer on the phone only matter if they are still switched on.
     val shown = apps.filter { it.installed || it.allowed }
+    var timing by remember { mutableStateOf<KidApp?>(null) }
+    timing?.let { app ->
+        AppTimeDialog(
+            label = app.label,
+            allowed = app.allowed,
+            endsAt = app.endsAt,
+            onChoose = { on, minutes -> timing = null; onChange(app, on, minutes) },
+            onDismiss = { timing = null },
+        )
+    }
     Group {
         if (shown.isEmpty()) {
             Text(
@@ -62,17 +76,14 @@ fun AppsGroup(apps: List<KidApp>, onToggle: (KidApp, Boolean) -> Unit) {
         }
         shown.forEachIndexed { i, app ->
             if (i > 0) HorizontalDivider(Modifier.padding(start = 76.dp), color = Hairline)
-            AppRow(app, onToggle)
+            AppSwitchRow(
+                packageName = app.packageName, label = app.label, installed = app.installed, allowed = app.allowed,
+                endsAt = app.endsAt, onTime = { timing = app },
+                icon = { AppIcon(app) }, onToggle = { onChange(app, it, null) },
+            )
         }
     }
 }
-
-@Composable
-private fun AppRow(app: KidApp, onToggle: (KidApp, Boolean) -> Unit) =
-    AppSwitchRow(
-        packageName = app.packageName, label = app.label, installed = app.installed, allowed = app.allowed,
-        icon = { AppIcon(app) }, onToggle = { onToggle(app, it) },
-    )
 
 /** The app's icon, fetched from the hub (it needs this phone's pairing token) and kept in memory. */
 @Composable

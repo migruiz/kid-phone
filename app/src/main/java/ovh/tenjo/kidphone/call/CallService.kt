@@ -70,9 +70,10 @@ class CallService : InCallService() {
             Ringer.start(this, CallManager.numberOf(call))
         }
 
-        val screen = Intent(this, InCallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (ringing) postIncomingNotification(screen)
-        runCatching { startActivity(screen) }.onFailure { Log.e(TAG, "Could not open call screen", it) }
+        if (ringing) {
+            postIncomingNotification(Intent(this, InCallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        CallManager.showCallScreen(this)
     }
 
     override fun onCallRemoved(call: Call) {
@@ -90,7 +91,12 @@ class CallService : InCallService() {
     }
 
     override fun onDestroy() {
-        if (CallManager.service === this) CallManager.service = null
+        if (CallManager.service === this) {
+            CallManager.service = null
+            // Android only lets go of this service once every call is over. If it does so with
+            // calls still listed, they are no longer ours: forget them (and stop any sound).
+            CallManager.forgetAll()
+        }
         super.onDestroy()
     }
 

@@ -36,6 +36,7 @@ import ovh.tenjo.kidphone.hub.KidRequest
 import ovh.tenjo.kidphone.hub.Hub
 import ovh.tenjo.kidphone.kiosk.Kiosk
 import ovh.tenjo.kidphone.kiosk.Loudness
+import ovh.tenjo.kidphone.kiosk.TimeWarnings
 import ovh.tenjo.kidphone.ui.AllowedEditor
 import ovh.tenjo.kidphone.ui.AppsButton
 import ovh.tenjo.kidphone.ui.AppsEditor
@@ -104,6 +105,7 @@ open class MainActivity : ComponentActivity() {
     private var callTimeBusy by mutableStateOf(false)
     private var callTimeError by mutableStateOf<String?>(null)
     private var batteryAtOnce by mutableStateOf(true)
+    private var timeWarningsFloat by mutableStateOf(true)
 
     /** Set while unlocking, so the screen doesn't lock itself again on the way out. */
     private var leaving = false
@@ -116,6 +118,10 @@ open class MainActivity : ComponentActivity() {
 
     /** Android's "let it run in the background?" for the battery alerts; refreshes the notice after. */
     private val batteryRequest =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { refresh() }
+
+    /** Android's "display over other apps" switch for the time warnings; refreshes the notice after. */
+    private val overlayRequest =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { refresh() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -160,6 +166,10 @@ open class MainActivity : ComponentActivity() {
         if (!leaving && store.setupDone && Kiosk.isDeviceOwner(this)) Kiosk.takeDialerRoleSilently(this)
         refresh()
         maybeLock()
+        // The kid screen came to the front during a call (the Home button, or an app closing):
+        // the call screen goes straight back on top. Otherwise the call carries on, ringing,
+        // with nothing on screen to see it or hang up.
+        if (!leaving && store.locked && CallManager.hasLiveCall) CallManager.showCallScreen(this)
     }
 
     override fun onStop() {
@@ -176,6 +186,7 @@ open class MainActivity : ComponentActivity() {
         hasPin = store.hasPin()
         setupDone = store.setupDone
         batteryAtOnce = BatteryReport.goesOutAtOnce(this)
+        timeWarningsFloat = TimeWarnings.canShow(this)
     }
 
     private fun maybeLock() {
@@ -276,6 +287,7 @@ open class MainActivity : ComponentActivity() {
         val appsAvailable by Hub.appsAvailable.collectAsState()
         val requests by Hub.requests.collectAsState()
         val windows by Hub.windows.collectAsState()
+        val appEnds by Hub.appEnds.collectAsState()
         when {
             !owner -> NotOwnerScreen(packageName, onCheckAgain = { refresh(); maybeLock() })
 
@@ -377,7 +389,7 @@ open class MainActivity : ComponentActivity() {
                         onParent = { screen = Screen.Pin },
                     )
                     Screen.Apps -> if (appsAvailable) {
-                        AppsScreen(allowed = allowedApps, onBack = { screen = Screen.Home })
+                        AppsScreen(allowed = allowedApps, ends = appEnds, onBack = { screen = Screen.Home })
                     } else {
                         LaunchedEffect(Unit) { screen = Screen.Home } // left home while it was open
                     }
@@ -401,7 +413,7 @@ open class MainActivity : ComponentActivity() {
                         onAllowed = { screen = Screen.Allowed },
                         hubSummary = hubSummary(home),
                         onHub = { screen = Screen.Hub },
-                        appsSummary = appsSummary(allowedApps, home),
+                        appsSummary = appsSummary(allowedApps, appEnds.size, home),
                         onApps = { screen = Screen.AppsEdit },
                         callTimes = windows.mapNotNull { (number, endsAt) ->
                             val left = (endsAt - System.currentTimeMillis()) / 60_000 + 1
@@ -427,6 +439,11 @@ open class MainActivity : ComponentActivity() {
                             runCatching { batteryRequest.launch(BatteryReport.goOutAtOnceRequest(this)) }
                                 .onFailure { Toast.makeText(this, "This phone did not allow it: ${it.message}", Toast.LENGTH_LONG).show() }
                         },
+                        timeWarningsHidden = home != HomeStatus.NotSetUp && !timeWarningsFloat,
+                        onFixTimeWarnings = {
+                            runCatching { overlayRequest.launch(TimeWarnings.allowRequest(this)) }
+                                .onFailure { Toast.makeText(this, "This phone did not allow it: ${it.message}", Toast.LENGTH_LONG).show() }
+                        },
                         onBackToKid = { screen = Screen.Home },
                         onRemove = ::removeAndLeave,
                     )
@@ -446,7 +463,7 @@ open class MainActivity : ComponentActivity() {
                         onBack = { screen = Screen.Parent },
                     )
                     Screen.Hub -> HubScreen(childName = childName, onBack = { screen = Screen.Parent })
-                    Screen.AppsEdit -> AppsEditor(allowed = allowedApps, status = home, onBack = { screen = Screen.Parent })
+                    Screen.AppsEdit -> AppsEditor(allowed = allowedApps, ends = appEnds, status = home, onBack = { screen = Screen.Parent })
                     Screen.ChangePin -> NewPinScreen(
                         title = "New parent PIN",
                         onDone = { store.setPin(it); screen = Screen.Parent },

@@ -22,6 +22,11 @@ An Android app that turns a phone into a child's phone.
   and just before an allowed caller rings. The volume buttons do nothing in kid mode. Incoming calls
   also vibrate (for at most a minute), even if vibration is off in the phone's settings.
 - **Ringing sound** while a call goes out, until it is answered.
+- **The call screen stays on top.** In kid mode, if anything brings the kid screen forward during
+  a call (the Home button, or an app closing), the call screen comes straight back, so a call
+  can't carry on unseen. Tapping a call button twice starts one call, and a tap that lands on the
+  call screen the instant it opens is ignored. Hanging up in the first moment of a call ends it as
+  soon as the phone is dialling (some phones otherwise keep dialling with nothing on screen).
 - **Locked in.** No notification shade or quick settings (so no Wi-Fi, Bluetooth or airplane mode),
   no home or recent-apps buttons, no power-off menu, no lock screen, no other app can open. Safe
   mode and factory reset from Settings are blocked.
@@ -46,6 +51,19 @@ An Android app that turns a phone into a child's phone.
   app are never offered. The same list with switches is also on the child's phone itself, behind
   the PIN (padlock → *Apps he can open*); it changes the same switches through the hub, so it needs
   the home Wi-Fi.
+  - **For a while.** The timer button next to an app's switch turns it on for **15 min, 30 min,
+    1 hour or 2 hours** from now (tapped again: change it from now, take the time away, or switch
+    it off). His Apps screen shows the minutes left on the app's icon. He gets **"10 minutes
+    left"** and **"5 minutes left"** (a few seconds each, with the notification sound), then for
+    the last 30 seconds a **countdown** (30, 29, 28…, red for the last ten) and "Time's up!". They
+    float at the top of the screen, over the app itself, and taps go through to the app. Then the
+    app closes and is switched off for everyone. The time is the clock's, used or not. The phone
+    closes the app on time by itself, also away from the hub. No warnings during a call or with the
+    screen off; a reminder missed by more than a minute is skipped.
+  - Floating over other apps needs Android's *Display over other apps*, which being the phone app
+    gives Kid Phone on Android 14. Where it doesn't, the parent menu says *Time warnings are small*
+    → **Allow** → find Kid Phone in the list and allow it. Until then the warnings are short
+    pop-up messages.
 - **Battery alerts to the parents.** When his battery drops below **25%**, **15%** and **10%**, the
   parents' phones get an alert: *low* (a sound), *very low* (pops up), *critical* (pops up and
   vibrates hard). Each one comes once per drop and never while the phone is plugged in. It comes

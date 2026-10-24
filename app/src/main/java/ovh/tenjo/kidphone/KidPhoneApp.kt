@@ -10,6 +10,7 @@ import android.telecom.TelecomManager
 import ovh.tenjo.kidphone.call.CallManager
 import ovh.tenjo.kidphone.hub.BatteryReport
 import ovh.tenjo.kidphone.hub.Hub
+import ovh.tenjo.kidphone.kiosk.TimeWarnings
 import ovh.tenjo.kidphone.shared.Updater
 
 class KidPhoneApp : Application() {
@@ -24,6 +25,8 @@ class KidPhoneApp : Application() {
             override fun onReceive(context: Context, intent: Intent) = Updater.installDownloadedIfAllowed(context)
         }, IntentFilter(Intent.ACTION_SCREEN_OFF))
         Hub.watch(this)
+        // "10 minutes left" and the last-30-seconds countdown for apps allowed for a while.
+        TimeWarnings.start(this)
         // The parents get an alert when the battery runs low (through the hub, on the home Wi-Fi).
         BatteryReport.start(this)
         // An app installed, updated or removed: the parents' list should follow.

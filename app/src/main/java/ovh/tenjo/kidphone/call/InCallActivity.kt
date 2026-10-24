@@ -2,6 +2,7 @@ package ovh.tenjo.kidphone.call
 
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.SystemClock
 import android.telecom.Call
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -91,6 +92,13 @@ class InCallActivity : ComponentActivity() {
             proximity = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "kidphone:incall")
         }
 
+        // Taps in the first moment are the second half of the double tap that started the call
+        // (the call buttons sit where the person's button was): ignore them.
+        val shownAt = SystemClock.uptimeMillis()
+        fun guarded(action: () -> Unit): () -> Unit = {
+            if (SystemClock.uptimeMillis() - shownAt >= STRAY_TAP_MS) action()
+        }
+
         setContent {
             KidTheme {
                 val info by CallManager.current.collectAsState()
@@ -100,13 +108,17 @@ class InCallActivity : ComponentActivity() {
                 if (call != null) {
                     CallScreen(
                         call,
-                        onAnswer = CallManager::answer,
-                        onHangUp = CallManager::hangUp,
-                        onSpeaker = { CallManager.setSpeaker(!call.speaker) },
+                        onAnswer = guarded(CallManager::answer),
+                        onHangUp = guarded(CallManager::hangUp),
+                        onSpeaker = guarded { CallManager.setSpeaker(!call.speaker) },
                     )
                 }
             }
         }
+    }
+
+    companion object {
+        private const val STRAY_TAP_MS = 600L
     }
 
     /** Turns the screen off when the phone is held to the ear, so a cheek can't press buttons. */
@@ -135,7 +147,7 @@ private val Night = Color(0xFF0E1424)
 @Composable
 private fun CallScreen(call: CallInfo, onAnswer: () -> Unit, onHangUp: () -> Unit, onSpeaker: () -> Unit) {
     val ringing = call.state == Call.STATE_RINGING && call.incoming
-    val waiting = call.state in setOf(Call.STATE_RINGING, Call.STATE_DIALING, Call.STATE_CONNECTING)
+    val waiting = !call.hangingUp && call.state in setOf(Call.STATE_RINGING, Call.STATE_DIALING, Call.STATE_CONNECTING)
     val title = call.name ?: call.number.ifBlank { "Unknown" }
     // The caller's button colour fades into night blue; unknown callers get slate.
     val top = if (call.color >= 0) lerp(tileColor(call.color).dark, Night, 0.15f) else Color(0xFF334155)
@@ -150,12 +162,13 @@ private fun CallScreen(call: CallInfo, onAnswer: () -> Unit, onHangUp: () -> Uni
     }
     val heading = when {
         ringing -> "Incoming call"
+        call.hangingUp -> "Call ended"
         call.state == Call.STATE_ACTIVE -> "On the phone"
         call.state == Call.STATE_HOLDING -> "On hold"
         call.state == Call.STATE_DISCONNECTING || call.state == Call.STATE_DISCONNECTED -> "Call ended"
         else -> "Calling"
     }
-    val status = when (call.state) {
+    val status = if (call.hangingUp) "Hanging up…" else when (call.state) {
         Call.STATE_RINGING -> if (call.incoming) "is calling you" else "Ringing…"
         Call.STATE_ACTIVE -> {
             val secs = ((now - (call.connectedAt ?: now)) / 1000).coerceAtLeast(0)

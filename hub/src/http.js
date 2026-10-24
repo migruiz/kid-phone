@@ -76,6 +76,13 @@ export function requiredString(body, key, max) {
   return value;
 }
 
+/** An apps switch body: {"allowed":true|false, "minutes":<optional, only with allowed:true>}. */
+export function appSwitch(body) {
+  if (typeof body.allowed !== 'boolean') throw new HttpError(400, 'bad_request', '"allowed" must be true or false');
+  const minutes = body.allowed && body.minutes !== undefined && body.minutes !== null ? body.minutes : null;
+  return { allowed: body.allowed, minutes };
+}
+
 // ---- routing ----
 
 function matchPath(pattern, path) {

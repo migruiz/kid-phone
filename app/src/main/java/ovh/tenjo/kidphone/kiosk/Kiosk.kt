@@ -15,6 +15,7 @@ import android.os.UserManager
 import android.telecom.TelecomManager
 import android.util.Log
 import ovh.tenjo.kidphone.HomeActivity
+import ovh.tenjo.kidphone.call.CallManager
 import ovh.tenjo.kidphone.data.Store
 
 /**
@@ -70,7 +71,8 @@ object Kiosk {
         step("allow lock task") { dpm(context).setLockTaskPackages(admin(context), lockTaskPackages(context)) }
         if (removed.isNotEmpty()) {
             Log.i(TAG, "Apps no longer allowed now: $removed")
-            runCatching { context.startActivity(homeIntent()) }
+            // Never over a call: the call screen must stay on top. Android closes the app anyway.
+            if (!CallManager.hasLiveCall) runCatching { context.startActivity(homeIntent()) }
         }
     }
 

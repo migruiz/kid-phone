@@ -19,7 +19,15 @@ data class Child(val name: String, val paired: Boolean, val lastSeenAgoMs: Long?
 /** The child's battery as last reported to the hub (it reports on the home Wi-Fi only). */
 data class Battery(val percent: Int, val charging: Boolean, val agoMs: Long)
 
-data class KidApp(val packageName: String, val label: String, val allowed: Boolean, val installed: Boolean, val hasIcon: Boolean)
+/** An app on the child's phone. [endsAt] (this phone's clock) is when an app switched on for a while goes off. */
+data class KidApp(
+    val packageName: String,
+    val label: String,
+    val allowed: Boolean,
+    val installed: Boolean,
+    val hasIcon: Boolean,
+    val endsAt: Long? = null,
+)
 
 data class CallRequest(
     val id: String,
@@ -111,8 +119,11 @@ object Hub {
     fun iconUrl(packageName: String) = "$BASE/parent/apps/$packageName/icon"
     fun authHeader(): String = "Bearer ${token.orEmpty()}"
 
-    suspend fun setAllowed(packageName: String, allowed: Boolean) {
-        call { Http.put("$BASE/parent/apps/$packageName", JSONObject().put("allowed", allowed), token) }
+    /** Switches an app on (for [minutes] from now, or with no time limit when null) or off. */
+    suspend fun setAllowed(packageName: String, allowed: Boolean, minutes: Int? = null) {
+        val body = JSONObject().put("allowed", allowed)
+        if (allowed && minutes != null) body.put("minutes", minutes)
+        call { Http.put("$BASE/parent/apps/$packageName", body, token) }
     }
 
     /** Answers an "ask first" request: 0 minutes says no; otherwise 10, 30 or 60. */
@@ -186,8 +197,14 @@ object Hub {
                 Battery(it.optInt("percent"), it.optBoolean("charging"), (now - it.optLong("at", now)).coerceAtLeast(0))
             },
         )
+        // Times are relative, so this phone's clock and the Pi's don't need to agree.
+        val heardAt = System.currentTimeMillis()
         val apps = json.optJSONArray("apps").objects().map {
-            KidApp(it.getString("package"), it.optString("label"), it.optBoolean("allowed"), it.optBoolean("installed", true), it.optBoolean("hasIcon"))
+            KidApp(
+                it.getString("package"), it.optString("label"), it.optBoolean("allowed"), it.optBoolean("installed", true),
+                it.optBoolean("hasIcon"),
+                endsAt = if (it.has("remainingSeconds") && !it.isNull("remainingSeconds")) heardAt + it.getLong("remainingSeconds") * 1000 else null,
+            )
         }
         val requests = json.optJSONArray("requests").objects().map { parseRequest(it, now) }
         val parents = json.optJSONArray("parents").objects().map { Parent(it.optString("name"), it.optBoolean("me")) }

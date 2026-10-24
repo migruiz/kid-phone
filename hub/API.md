@@ -81,22 +81,28 @@ allowed. `label` defaults to the package name. `childName` (optional) updates th
 parent app and alerts.
 
 ### `PUT /kid/apps/{package}`
-Body: `{"allowed":true}` → `200 {"ok":true}` · `404` (unknown app) · `400` (not a boolean).
-A parent switching an app on or off in Kid Phone's own parent menu, behind its PIN. Same effect
-as `PUT /parent/apps/{package}`: the parents' apps list shows it, and the kid state version goes up.
+Body: `{"allowed":true}` or `{"allowed":true,"minutes":60}` → `200 {"ok":true}` · `404` (unknown
+app) · `400` (`allowed` not a boolean; `bad_minutes`).
+A parent switching an app on or off in Kid Phone's own parent menu, behind its PIN. Same rules
+and effect as `PUT /parent/apps/{package}`: the parents' apps list shows it, and the kid state
+version goes up.
 
 ### `GET /kid/state?since=<version>&wait=<seconds>`
 Everything the child's phone needs:
 ```json
 {"version":17,
- "allowedPackages":["com.duolingo"],
+ "allowedPackages":["com.chess","com.duolingo"],
+ "appTimes":[{"package":"com.chess","remainingSeconds":3540,"minutes":60}],
  "requests":[{"id":"r_ab12","number":"0871234567","status":"approved",
               "remainingSeconds":1740,"minutes":30}]}
 ```
 - `version` goes up whenever anything in this answer changes (apart from the ticking
-  `remainingSeconds`), including when an approved window ends or a finished request drops off the
-  list. It also goes up once each time the hub starts.
+  `remainingSeconds`), including when an approved window or an app's time ends or a finished
+  request drops off the list. It also goes up once each time the hub starts.
 - `allowedPackages`: every app the parents allow, including ones not installed right now.
+- `appTimes`: the allowed apps switched on for a while (by package): seconds left and the minutes
+  given. The phone counts down by itself, warns the child and closes the app at the end; the hub
+  switches it off at the same moment. Apps on with no time limit are not listed.
 - Long-poll: when `since` equals the current version, the hub holds the request until something
   changes or `wait` seconds pass (max 30, default 0 = answer at once), then answers.
 - `requests` (newest first): every request that is `pending`, plus `approved` ones with time left,
@@ -164,13 +170,16 @@ Body: `{"fcmToken":"..."}` → `200 {"ok":true}`. Called when FCM rotates the to
 ```json
 {"child":{"name":"Alejandro","paired":true,"lastSeen":<epoch ms or null>,"appVersion":10100,
           "battery":{"percent":23,"charging":false,"at":<epoch ms>}},
- "apps":[{"package":"com.duolingo","label":"Duolingo","allowed":true,"installed":true,"hasIcon":true}],
+ "apps":[{"package":"com.duolingo","label":"Duolingo","allowed":true,"installed":true,"hasIcon":true},
+         {"package":"com.chess","label":"Chess","allowed":true,"installed":true,"hasIcon":true,
+          "minutes":60,"remainingSeconds":3540}],
  "requests":[{"id":"r_ab12","contactName":"Pablo","number":"0871234567","status":"approved",
               "createdAt":<ms>,"decidedBy":"Miguel","minutes":30,"remainingSeconds":1740}],
  "parents":[{"name":"Miguel","me":true},{"name":"Sonia","me":false}],
  "time":<epoch ms>}
 ```
-Apps sorted by label (installed first). `requests`: pending ones and the last 20 others, newest first.
+Apps sorted by label (installed first). An app switched on for a while also has `minutes` (as
+given) and `remainingSeconds`. `requests`: pending ones and the last 20 others, newest first.
 In a request, `decidedBy` and `minutes` are `null` until a parent answers (`minutes` `0` means
 rejected). `remainingSeconds` is only on `approved` (`0` once the time is up). `child.paired` is
 true once a child phone has registered. `child.battery` is the last battery report (`at` is when it
@@ -180,8 +189,14 @@ came), or `null` before the first one.
 → `200 image/png` (with `Cache-Control: private, max-age=86400`, so Cloudflare never caches it) · `404`
 
 ### `PUT /parent/apps/{package}`
-Body: `{"allowed":true}` → `200 {"ok":true}` · `404` (unknown app). Bumps the kid state version
-(wakes its long-poll) when the switch actually changes.
+Body: `{"allowed":true}` (on, no time limit), `{"allowed":true,"minutes":60}` (on for that long,
+counted from now) or `{"allowed":false}` → `200 {"ok":true}` · `404` (unknown app) ·
+`400 {"error":"bad_minutes"}`. `minutes` must be a whole number from 1 to 1440, or `null` for no
+time limit; with `allowed:false` it is ignored.
+Giving a time to an app already on restarts it from now (an hour can become ten minutes from now);
+`{"allowed":true}` takes a time away. When the time is up the hub switches the app off by itself
+(saved with absolute times, so this also happens on time after a restart). Bumps the kid state
+version (wakes its long-poll) whenever the switch or its time changes.
 
 ### `POST /parent/requests/{id}/answer`
 Body: `{"minutes":30}` — `0` rejects; otherwise one of `10`, `30`, `60` (anything else:
