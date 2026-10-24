@@ -51,9 +51,10 @@ An Android app that turns a phone into a child's phone.
   app are never offered. The same list with switches is also on the child's phone itself, behind
   the PIN (padlock → *Apps he can open*); it changes the same switches through the hub, so it needs
   the home Wi-Fi.
-  - **For a while.** The timer button next to an app's switch turns it on for **15 min, 30 min,
-    1 hour or 2 hours** from now (tapped again: change it from now, take the time away, or switch
-    it off). His Apps screen shows the minutes left on the app's icon. He gets **"10 minutes
+  - **For a while.** Switching an app on asks for how long: **15 min, 30 min, 1 hour or 2 hours**
+    from now, or no time limit. The list then shows the minutes left and when it ends; tapping the
+    app changes the time from now, takes it away, or switches it off. Switching it off with the
+    switch is at once. His Apps screen shows the minutes left on the app's icon. He gets **"10 minutes
     left"** and **"5 minutes left"** (a few seconds each, with the notification sound), then for
     the last 30 seconds a **countdown** (30, 29, 28…, red for the last ten) and "Time's up!". They
     float at the top of the screen, over the app itself, and taps go through to the app. Then the

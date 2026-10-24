@@ -78,7 +78,7 @@ fun AppsEditor(allowed: Set<String>, ends: Map<String, Long>, status: HomeStatus
         ScreenHeader(
             "Apps", onBack,
             subtitle = "Apps switched on here appear when he taps Apps. They only open on the home Wi-Fi. " +
-                "The timer button switches one on for a while; he sees a countdown before it closes. " +
+                "Switching one on asks for how long; tap it later to change the time. " +
                 "Kid Phone Parent shows the same list.",
         )
         val notice = when (status) {

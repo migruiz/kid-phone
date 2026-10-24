@@ -2,6 +2,7 @@ package ovh.tenjo.kidphone.ui
 
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Timer
@@ -84,9 +84,11 @@ fun rememberClock(): Long {
 }
 
 /**
- * One app with its on/off switch, as both apps list them: icon, name, a warning or "No longer on
- * the phone" underneath, and the switch. With [onTime], a timer button before the switch opens
- * the time choices; it shows the minutes left when the app is on for a while ([endsAt]).
+ * One app with its on/off switch, as both apps list them: icon, name, and underneath the time
+ * left when it is on for a while ([endsAt]), "No longer on the phone", or a warning.
+ *
+ * With [onTime], switching it on first asks for how long ([onTime] opens [AppTimeDialog]) and
+ * tapping the row changes the time; switching it off is immediate. Without, the switch alone.
  */
 @Composable
 fun AppSwitchRow(
@@ -100,10 +102,14 @@ fun AppSwitchRow(
     icon: @Composable () -> Unit,
     onToggle: (Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
     val warning = appWarning(packageName)
     val now = rememberClock()
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled && onTime != null && (installed || allowed)) { onTime?.invoke() }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -113,6 +119,18 @@ fun AppSwitchRow(
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(label, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (allowed && endsAt != null) {
+                val until = DateFormat.getTimeFormat(context).format(Date(endsAt))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Timer, contentDescription = null, tint = TimedGreen, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "${minutesLeft(endsAt, now)} min left · until $until",
+                        fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = TimedGreen,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             when {
                 !installed -> Text("No longer on the phone", fontSize = 13.sp, color = Muted)
                 warning != null -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -123,30 +141,10 @@ fun AppSwitchRow(
             }
         }
         Spacer(Modifier.width(8.dp))
-        if (onTime != null && (installed || allowed)) {
-            val timed = allowed && endsAt != null
-            Surface(
-                onClick = onTime,
-                enabled = enabled,
-                shape = CircleShape,
-                color = if (timed) CallGreen.copy(alpha = 0.16f) else Color(0xFFF2F4F8),
-            ) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Rounded.Timer, contentDescription = "Time",
-                        tint = if (timed) TimedGreen else Muted, modifier = Modifier.size(18.dp),
-                    )
-                    if (timed) {
-                        Spacer(Modifier.width(4.dp))
-                        Text("${minutesLeft(endsAt!!, now)} min", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = TimedGreen)
-                    }
-                }
-            }
-            Spacer(Modifier.width(8.dp))
-        }
         Switch(
             checked = allowed,
-            onCheckedChange = onToggle,
+            // Switching on asks for how long first; switching off is at once.
+            onCheckedChange = { on -> if (on && onTime != null) onTime() else onToggle(on) },
             enabled = enabled,
             colors = SwitchDefaults.colors(checkedTrackColor = CallGreen),
         )
@@ -158,7 +156,7 @@ private val TimedGreen = Color(0xFF0B5D33)
 /**
  * How long an app stays on: [AppTimeChoices] from now, no time limit, or off. [onChoose] gets
  * (true, minutes) for a time, (true, null) for no time limit and (false, null) for off. Both
- * apps show it from the timer button on an app's row.
+ * apps show it when an app is switched on, and when an app's row is tapped to change its time.
  */
 @Composable
 fun AppTimeDialog(label: String, allowed: Boolean, endsAt: Long?, onChoose: (Boolean, Int?) -> Unit, onDismiss: () -> Unit) {
@@ -170,7 +168,7 @@ fun AppTimeDialog(label: String, allowed: Boolean, endsAt: Long?, onChoose: (Boo
             "On until $until, ${minutesLeft(endsAt, now)} min left. It switches off by itself then. Change it to, from now:"
         }
         allowed -> "On, with no time limit. Give it a time, from now:"
-        else -> "Switch it on for:"
+        else -> "Switch it on for how long, from now?"
     }
     AlertDialog(
         onDismissRequest = onDismiss,

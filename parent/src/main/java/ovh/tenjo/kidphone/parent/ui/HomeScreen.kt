@@ -99,8 +99,8 @@ fun HomeScreen() {
             ScreenHeader(
                 "Apps", onBack = { showApps = false },
                 subtitle = "Apps switched on here appear when $childName taps Apps. They only open on the home Wi-Fi. " +
-                    "The timer button switches one on for a while: $childName sees \"10 minutes left\", " +
-                    "\"5 minutes left\" and a countdown, then it closes.",
+                    "Switching one on asks for how long; tap it later to change the time. With a time, " +
+                    "$childName sees \"10 minutes left\", \"5 minutes left\" and a countdown, then it closes.",
             )
             val st = state
             if (st == null) {
