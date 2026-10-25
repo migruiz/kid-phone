@@ -6,9 +6,10 @@
 # ignored: nothing is blocked and nothing is logged.
 #
 # Only his account is affected: every rule either allows everyone, or denies his account alone.
-# Shape: everyone may run anything; he is denied everything except Windows' own folder and apps
-# (minus the tools listed below), the always-allowed tools in apps.json, the launcher, and the
-# apps in apps.json while a parent has switched them on (by their signer).
+# Shape: everyone may run anything; he is denied everything except Windows' own folder and system
+# apps (minus the tools listed below), the launcher, and each app a parent has switched on right
+# now. How to allow each app (its publisher+product, or its path) comes from catalog.json, which
+# the agent writes from what it finds installed.
 
 $KidLockDir = 'C:\ProgramData\kidlock'
 $KidLockLog = Join-Path $KidLockDir 'kidlock.log'
@@ -19,6 +20,12 @@ function Write-KidLog([string]$Message, [string]$Who = '') {
 }
 
 function Get-KidConfig { Get-Content (Join-Path $KidLockDir 'apps.json') -Raw | ConvertFrom-Json }
+
+# The apps the agent found installed, with how to allow each one. Empty if it hasn't run yet.
+function Get-KidCatalog {
+    $f = Join-Path $KidLockDir 'catalog.json'
+    if (Test-Path $f) { (Get-Content $f -Raw | ConvertFrom-Json).apps } else { @() }
+}
 
 $KidLockNs      = 'root\cimv2\mdm\dmmap'
 $KidLockParent  = './Vendor/MSFT/AppLocker/ApplicationLaunchRestrictions/KidLock'
@@ -81,10 +88,16 @@ function Start-KidLockEngine {
     sc.exe start applockerfltr | Out-Null
 }
 
+# One AppLocker exception for an app in the catalog, from how it says to allow itself.
+function KidAppCond($app) {
+    if ($app.allow.type -eq 'path') { KidPathCond $app.allow.path }
+    else { KidPubCond $app.allow.publisher $app.allow.product }
+}
+
 <#
   Applies his rules. -Mode: AuditOnly (nothing blocked, Windows logs what it would block), Enabled
-  (blocking on) or Off (rules removed). -Unlocked: ids of apps in apps.json a parent has switched
-  on right now; their signer is allowed for him.
+  (blocking on) or Off (rules removed). -Unlocked: ids of apps a parent has switched on right now;
+  each one's catalog entry (publisher+product, or path) is allowed for him.
   Changes the rules in place when they exist, so there is never a moment without them.
 #>
 function Set-KidLockRules {
@@ -97,26 +110,27 @@ function Set-KidLockRules {
     }
     $config = Get-KidConfig
     $sid = (Get-LocalUser -Name $config.user -ErrorAction Stop).SID.Value
-    $signers = @($config.apps | Where-Object { $Unlocked -contains $_.id } | ForEach-Object { $_.signer } | Where-Object { $_ } | Sort-Object -Unique)
+    $on = @(Get-KidCatalog | Where-Object { $Unlocked -contains $_.id })
+    $onDesktop = @($on | Where-Object kind -eq 'desktop')
+    $onPackaged = @($on | Where-Object kind -eq 'packaged')
 
-    # Desktop programs
+    # Desktop programs: Windows' own folders, the launcher, and each switched-on desktop app.
     $exe = New-Object System.Text.StringBuilder
     [void]$exe.Append("<RuleCollection Type=`"Exe`" EnforcementMode=`"$Mode`">")
     [void]$exe.Append("<FilePathRule Id=`"$([guid]::NewGuid())`" Name=`"Everyone else: anything`" Description=`"`" UserOrGroupSid=`"S-1-1-0`" Action=`"Allow`"><Conditions>$(KidPathCond '*')</Conditions></FilePathRule>")
-    $exceptions = @($KidAllowedPaths | ForEach-Object { KidPathCond $_ }) + @($signers | ForEach-Object { KidPubCond $_ '*' })
+    $exceptions = @($KidAllowedPaths | ForEach-Object { KidPathCond $_ }) + @($onDesktop | ForEach-Object { KidAppCond $_ })
     [void]$exe.Append("<FilePathRule Id=`"$([guid]::NewGuid())`" Name=`"$(KidX $config.user): only Windows and allowed programs`" Description=`"`" UserOrGroupSid=`"$sid`" Action=`"Deny`"><Conditions>$(KidPathCond '*')</Conditions><Exceptions>$($exceptions -join '')</Exceptions></FilePathRule>")
     foreach ($p in $KidDeniedTools + $KidDeniedWritable) {
         [void]$exe.Append("<FilePathRule Id=`"$([guid]::NewGuid())`" Name=`"$(KidX $config.user): not $(KidX $p)`" Description=`"`" UserOrGroupSid=`"$sid`" Action=`"Deny`"><Conditions>$(KidPathCond $p)</Conditions></FilePathRule>")
     }
     [void]$exe.Append('</RuleCollection>')
 
-    # Packaged (Store-style) apps: Windows' own system apps plus the always-allowed tools
+    # Packaged (Store-style) apps: Windows' own system apps, plus each switched-on packaged app.
     $msWindows = 'CN=Microsoft Windows, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'
-    $msCorp    = 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'
     $appx = New-Object System.Text.StringBuilder
     [void]$appx.Append("<RuleCollection Type=`"Appx`" EnforcementMode=`"$Mode`">")
     [void]$appx.Append("<FilePublisherRule Id=`"$([guid]::NewGuid())`" Name=`"Everyone else: any packaged app`" Description=`"`" UserOrGroupSid=`"S-1-1-0`" Action=`"Allow`"><Conditions>$(KidPubCond '*' '*')</Conditions></FilePublisherRule>")
-    $appxExceptions = @(KidPubCond $msWindows '*') + @($config.tools | ForEach-Object { KidPubCond $msCorp $_.package })
+    $appxExceptions = @(KidPubCond $msWindows '*') + @($onPackaged | ForEach-Object { KidAppCond $_ })
     [void]$appx.Append("<FilePublisherRule Id=`"$([guid]::NewGuid())`" Name=`"$(KidX $config.user): only Windows' own and allowed apps`" Description=`"`" UserOrGroupSid=`"$sid`" Action=`"Deny`"><Conditions>$(KidPubCond '*' '*')</Conditions><Exceptions>$($appxExceptions -join '')</Exceptions></FilePublisherRule>")
     [void]$appx.Append('</RuleCollection>')
 

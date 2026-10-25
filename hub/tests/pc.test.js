@@ -190,6 +190,27 @@ test("the PC's token, apps and times survive a restart", async (t) => {
   assert.deepEqual((await pcState(h, pcToken)).allowed, []);
 });
 
+test('an app marked defaultAllowed starts on when new, but keeps the parents\' switch after', async (t) => {
+  const h = await startHub();
+  t.after(h.stop);
+  const { pcToken, Miguel } = await withPc(h);
+
+  // The tools come with defaultAllowed; they start switched on without a parent touching them.
+  await h.kid('PUT', '/pc/apps', {
+    token: pcToken,
+    body: { apps: [{ id: 'calculator', label: 'Calculator', defaultAllowed: true }, { id: 'chrome', label: 'Google Chrome' }] },
+  });
+  const apps = await parentPc(h, Miguel);
+  assert.equal(apps.apps.find((a) => a.id === 'calculator').allowed, true, 'tool on by default');
+  assert.equal(apps.apps.find((a) => a.id === 'chrome').allowed, false, 'a normal app stays off');
+  assert.deepEqual((await pcState(h, pcToken)).allowed.sort(), ['calculator']);
+
+  // A parent switches the tool off; a later list (still defaultAllowed) must not switch it back on.
+  await setPcApp(h, Miguel, { allowed: false }, 'calculator');
+  await h.kid('PUT', '/pc/apps', { token: pcToken, body: { apps: [{ id: 'calculator', label: 'Calculator', defaultAllowed: true }] } });
+  assert.equal((await parentPc(h, Miguel)).apps.find((a) => a.id === 'calculator').allowed, false, 'stays off once a parent chose so');
+});
+
 test('the PC is last seen when it asks for its state', async (t) => {
   const h = await startHub();
   t.after(h.stop);

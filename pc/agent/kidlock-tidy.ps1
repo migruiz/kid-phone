@@ -11,9 +11,17 @@ $log     = Join-Path $d 'kidlock.log'
 $removed = Join-Path $d 'removed'
 function Log($m) { "$(Get-Date -Format s)  [tidy] $m" | Add-Content -Path $log }
 
-# The tools he may always open (apps.json): shortcut name -> app ID
+# The everyday tools (apps.json "defaultOn"), for his desktop shortcuts and Start pins: name -> app ID.
+# Their app IDs come from catalog.json, which the agent writes from what's installed.
 $apps = [ordered]@{}
-foreach ($t in $config.tools) { $apps[$t.label] = $t.aumid }
+$catalog = @{}
+if (Test-Path "$d\catalog.json") {
+    try { (Get-Content "$d\catalog.json" -Raw | ConvertFrom-Json).apps | ForEach-Object { $catalog[$_.id] = $_ } } catch {}
+}
+foreach ($id in @($config.defaultOn)) {
+    $c = $catalog[$id]
+    if ($c -and $c.aumid) { $apps[$c.label] = $c.aumid }
+}
 
 Add-Type -TypeDefinition @'
 using System;
@@ -202,7 +210,7 @@ try {
     # 4c. Start's pinned apps: only his tools (Windows' own "Configure Start pins" setting for his
     # account, written where the device-management channel keeps it).
     try {
-        $json = @{ pinnedList = @($config.tools | ForEach-Object { @{ packagedAppId = $_.aumid } }) } | ConvertTo-Json -Depth 4 -Compress
+        $json = @{ pinnedList = @($apps.Values | ForEach-Object { @{ packagedAppId = $_ } }) } | ConvertTo-Json -Depth 4 -Compress
         $provider = 'FE24B94A-1E02-4259-A0C0-EF2E2B7F95D9'
         $cur = "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\$sid\Start"
         $pk = "HKLM:\SOFTWARE\Microsoft\PolicyManager\providers\$provider\default\$sid\Start"

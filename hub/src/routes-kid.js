@@ -29,7 +29,8 @@ function checkPcApps(body) {
     }
     const label = typeof item.label === 'string' && item.label.trim() ? item.label.trim().slice(0, 100) : item.id;
     const iconPng = typeof item.iconPng === 'string' && item.iconPng ? item.iconPng : undefined;
-    byId.set(item.id, { id: item.id, label, iconPng });
+    const defaultAllowed = item.defaultAllowed === true;
+    byId.set(item.id, { id: item.id, label, iconPng, defaultAllowed });
   }
   return [...byId.values()];
 }

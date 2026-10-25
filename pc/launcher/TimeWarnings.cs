@@ -102,7 +102,7 @@ namespace KidLock.Launcher
         string Label(string id) => id != null && source.Seen.TryGetValue(id, out var app) ? app.Label : id ?? "";
 
         BitmapSource Icon(string id) =>
-            id != null && source.Seen.TryGetValue(id, out var app) ? Apps.AppIcon(app, Apps.Exe(app), Apps.ColorFor(app.Id)) : null;
+            id != null && source.Seen.TryGetValue(id, out var app) ? Apps.Icon(app) : null;
 
         /// <summary>Windows' notification sound, once, so a child busy with a game notices.</summary>
         void PlayChime()

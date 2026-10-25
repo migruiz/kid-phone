@@ -143,24 +143,112 @@ function Resolve-Launch([string]$Pattern, [string]$Profile) {
     $null
 }
 
-# The apps from apps.json that are on the PC, for the parents' app; sent when the list changes.
-function Send-AppList {
+# ---------- finding his apps ----------
+
+# A readable name from a package name when apps.json has none: "Microsoft.WindowsCalculator" -> "Calculator".
+function Prettify([string]$packageName) {
+    $seg = ($packageName -split '\.')[-1]
+    $spaced = [regex]::Replace($seg, '([a-z0-9])([A-Z])', '$1 $2')
+    $spaced = [regex]::Replace($spaced, '([A-Z]+)([A-Z][a-z])', '$1 $2')
+    ($spaced -replace '^(Microsoft|Windows|Bing|Zune)\s+', '').Trim()
+}
+
+# The best scaled logo of a packaged app (nearest ~96px, at most 256), as a base64 PNG, or null.
+function Get-PackagedLogo([string]$installLoc, [string]$logoRel) {
+    if (-not $logoRel) { return $null }
+    $dir = Split-Path (Join-Path $installLoc $logoRel)
+    $stem = [IO.Path]::GetFileNameWithoutExtension($logoRel)
+    $ext = [IO.Path]::GetExtension($logoRel)
+    if (-not (Test-Path $dir)) { return $null }
+    $best = $null; $bestScore = [int]::MaxValue
+    foreach ($f in Get-ChildItem $dir -Filter "$stem*$ext" -File -ErrorAction SilentlyContinue) {
+        $size = 44
+        if ($f.Name -match 'targetsize-(\d+)') { $size = [int]$Matches[1] }
+        elseif ($f.Name -match 'scale-(\d+)') { $size = [int][math]::Round(44 * [int]$Matches[1] / 100) }
+        if ($size -gt 256) { continue }
+        $score = [math]::Abs($size - 96)
+        if ($score -lt $bestScore) { $bestScore = $score; $best = $f }
+    }
+    if (-not $best) { return $null }
+    try { [Convert]::ToBase64String([IO.File]::ReadAllBytes($best.FullName)) } catch { $null }
+}
+
+# Looks at what's installed and builds the catalog: every app he could be allowed, with how to allow
+# it (publisher+product, or path), launch it, close it, and its icon. Packaged apps are found
+# automatically; desktop programs come from apps.json. Writes catalog.json (the rules read it) and
+# returns the list to send to the hub. The escape-hatch apps in blockPackaged/blockDesktop are left out.
+function Build-Catalog {
     $prof = Get-HisProfile
-    $items = @()
-    foreach ($app in $script:config.apps) {
+    $labels = @{}; if ($script:config.labels) { $script:config.labels.PSObject.Properties | ForEach-Object { $labels[$_.Name] = $_.Value } }
+    $blockPackaged = @($script:config.blockPackaged | ForEach-Object { "$_".ToLower() })
+    $defaultOn = @($script:config.defaultOn)
+    $catalog = @()
+
+    # Packaged (Store-style) apps he has, one tile each.
+    foreach ($p in Get-AppxPackage -User $script:sid -ErrorAction SilentlyContinue | Where-Object { -not $_.IsFramework -and $_.SignatureKind -ne 'System' }) {
+        if ($blockPackaged -contains $p.Name.ToLower()) { continue }
+        $manifest = Join-Path $p.InstallLocation 'AppxManifest.xml'
+        if (-not (Test-Path $manifest)) { continue }
+        $app = $null
+        try { $app = @(([xml](Get-Content $manifest)).Package.Applications.Application | Where-Object {
+            $ve = $_.VisualElements; if (-not $ve) { $ve = $_.ChildNodes | Where-Object LocalName -eq 'VisualElements' | Select-Object -First 1 }
+            $ve -and $ve.AppListEntry -ne 'none'
+        })[0] } catch { continue }
+        if (-not $app) { continue }
+        $ve = $app.VisualElements; if (-not $ve) { $ve = $app.ChildNodes | Where-Object LocalName -eq 'VisualElements' | Select-Object -First 1 }
+        $id = $p.Name.ToLower()
+        $logo = if ($ve.Square44x44Logo) { $ve.Square44x44Logo } else { $ve.Logo }
+        $catalog += [ordered]@{
+            id = $id; kind = 'packaged'; label = $(if ($labels.ContainsKey($id)) { $labels[$id] } else { Prettify $p.Name })
+            aumid = "$($p.PackageFamilyName)!$($app.Id)"; installLoc = $p.InstallLocation; processes = @()
+            allow = [ordered]@{ type = 'pub'; publisher = $p.Publisher; product = $p.Name }
+            iconB64 = Get-PackagedLogo $p.InstallLocation $logo
+        }
+    }
+
+    # Desktop programs listed in apps.json, if their exe is on the PC.
+    foreach ($app in $script:config.desktop) {
         $exe = Resolve-Launch $app.launch $prof
         if (-not $exe) { continue }
-        $item = @{ id = $app.id; label = $app.label }
-        $png = try { [KidIcon]::Png($exe, 128) } catch { $null }
-        if ($png) { $item.iconPng = $png }
-        $items += $item
+        $allow = $null
+        $info = try { Get-AppLockerFileInformation -Path $exe -ErrorAction Stop } catch { $null }
+        if ($info -and $info.Publisher) {
+            $product = if ($app.signerWide) { '*' } else { $info.Publisher.ProductName }
+            if (-not $product) { $product = '*' }
+            $allow = [ordered]@{ type = 'pub'; publisher = $info.Publisher.PublisherName; product = $product }
+        } else {
+            $allow = [ordered]@{ type = 'path'; path = (Split-Path $exe) + '\*' }   # unsigned: its folder
+        }
+        $catalog += [ordered]@{
+            id = "$($app.id)".ToLower(); kind = 'desktop'; label = $app.label
+            launch = $app.launch; processes = @($app.processes); allow = $allow
+            iconB64 = try { [KidIcon]::Png($exe, 128) } catch { $null }
+        }
     }
-    $key = ($items | ForEach-Object { "$($_.id)=$($_.iconPng.Length)" }) -join ';'
+
+    # Keep it for the rules and for Close-App / Write-Now, and for the next run's start.
+    $script:catalog = @{}
+    foreach ($c in $catalog) { $script:catalog[$c.id] = $c }
+    $slim = $catalog | ForEach-Object { $c = [ordered]@{}; $_.GetEnumerator() | Where-Object Key -ne 'iconB64' | ForEach-Object { $c[$_.Key] = $_.Value }; $c }
+    [IO.File]::WriteAllText((Join-Path $KidLockDir 'catalog.json'), (@{ apps = $slim } | ConvertTo-Json -Depth 6))
+
+    # What the parents' app shows: id, label, icon, and whether it starts on (the everyday tools do).
+    $catalog | ForEach-Object {
+        $item = @{ id = $_.id; label = $_.label; defaultAllowed = ($defaultOn -contains $_.id) }
+        if ($_.iconB64) { $item.iconPng = $_.iconB64 }
+        $item
+    }
+}
+
+# Builds the catalog and sends it to the hub when it changed.
+function Send-AppList {
+    $items = @(Build-Catalog)
+    $key = ($items | Sort-Object { $_.id } | ForEach-Object { "$($_.id)=$($_.iconPng.Length)" }) -join ';'
     if ($key -ne $script:listKey) {
         $a = Invoke-Hub PUT '/pc/apps' @{ apps = $items }
         if ($a.Status -ne 200) { throw "sending the apps: $($a.Error)" }
         $script:listKey = $key
-        Write-KidLog ("apps on the PC sent to the hub: " + $(if ($items) { ($items | ForEach-Object { $_.label }) -join ', ' } else { 'none' })) $Who
+        Write-KidLog ("apps on the PC sent to the hub ($($items.Count)): " + (($items | ForEach-Object { $_.label } | Sort-Object) -join ', ')) $Who
     }
     $script:listCheckedAt = NowMs
 }
@@ -210,21 +298,28 @@ function Update-Grants($state, [long]$Now) {
     }
 }
 
-# The apps he may use right now: switched on, with time left (or no limit while the hub answers).
+# The apps he may use right now: switched on, that we know how to allow (in the catalog), with time
+# left (or no limit while the hub is answering).
 function Get-Unlocked([long]$Now) {
-    $known = @($script:config.apps | ForEach-Object { $_.id })
     @($script:grants.Keys | Where-Object {
         $g = $script:grants[$_]
-        ($known -contains $_) -and $(if ($null -ne $g.endsAt) { $Now -lt $g.endsAt } else { ($Now - $script:hubSeenAt) -lt $HubSilenceMs })
+        $script:catalog.ContainsKey($_) -and $(if ($null -ne $g.endsAt) { $Now -lt $g.endsAt } else { ($Now - $script:hubSeenAt) -lt $HubSilenceMs })
     } | Sort-Object)
 }
 
 # ---------- making it so ----------
 
-# Closes an app's programs running in his account (only his: never a parent's).
+# Closes a catalog app's programs running in his account (only his: never a parent's). A desktop
+# app is closed by its process names; a packaged app by whatever is running from its own folder.
 function Close-App($app) {
     $mine = "$env:COMPUTERNAME\$($script:config.user)"
-    $procs = @(Get-Process -Name $app.processes -IncludeUserName -ErrorAction SilentlyContinue | Where-Object { $_.UserName -eq $mine })
+    $procs = if ($app.kind -eq 'packaged') {
+        if (-not $app.installLoc) { return }
+        @(Get-Process -IncludeUserName -ErrorAction SilentlyContinue | Where-Object { $_.UserName -eq $mine -and $_.Path -and $_.Path.StartsWith($app.installLoc, [StringComparison]::OrdinalIgnoreCase) })
+    } else {
+        if (-not $app.processes) { return }
+        @(Get-Process -Name $app.processes -IncludeUserName -ErrorAction SilentlyContinue | Where-Object { $_.UserName -eq $mine })
+    }
     if (-not $procs) { return }
     $procs | Stop-Process -Force -ErrorAction SilentlyContinue
     Write-KidLog "closed $($app.label) ($($procs.Count) program(s) running)" $Who
@@ -246,25 +341,29 @@ function Sync-Rules([string[]]$Unlocked, [long]$Now) {
     # Rules only stop programs from starting: close what is running and no longer allowed, at once
     # when something was locked, and every few seconds anyway (in case anything slipped through).
     if ($script:mode -eq 'Enabled' -and ($changed -or ($Now - $script:closeCheckedAt) -ge $CloseCheckMs)) {
-        foreach ($app in $script:config.apps) { if ($Unlocked -notcontains $app.id) { Close-App $app } }
+        foreach ($id in $script:catalog.Keys) { if ($Unlocked -notcontains $id) { Close-App $script:catalog[$id] } }
         $script:closeCheckedAt = $Now
     }
 }
 
-# What his launcher shows: the tools, and each app with whether it's on and until when.
+# What his launcher shows: every app that is on right now, each launched by its app ID (packaged)
+# or its program (desktop), with the time left (if any).
 function Write-Now([string[]]$Unlocked, [long]$Now) {
-    $apps = foreach ($app in $script:config.apps) {
-        $on = $Unlocked -contains $app.id
-        $g = if ($on) { $script:grants[$app.id] } else { $null }
-        [ordered]@{ id = $app.id; label = $app.label; launch = $app.launch; allowed = $on
-                    endsAt = $(if ($g) { $g.endsAt } else { $null }); minutes = $(if ($g) { $g.minutes } else { $null }) }
+    $apps = foreach ($id in $Unlocked) {
+        $app = $script:catalog[$id]
+        if (-not $app) { continue }
+        $g = $script:grants[$id]
+        $item = [ordered]@{ id = $id; label = $app.label; allowed = $true
+                            endsAt = $(if ($g) { $g.endsAt } else { $null }); minutes = $(if ($g) { $g.minutes } else { $null }) }
+        if ($app.kind -eq 'packaged') { $item.aumid = $app.aumid } else { $item.launch = $app.launch }
+        $item
     }
-    $tools = foreach ($t in $script:config.tools) { [ordered]@{ label = $t.label; aumid = $t.aumid } }
+    $apps = @($apps)
     $hubOk = ($Now - $script:hubSeenAt) -lt $HubSilenceMs
-    $content = (@{ hubOk = $hubOk; tools = @($tools); apps = @($apps) } | ConvertTo-Json -Depth 5 -Compress)
+    $content = (@{ hubOk = $hubOk; apps = $apps } | ConvertTo-Json -Depth 5 -Compress)
     if ($content -eq $script:nowContent -and ($Now - $script:nowWrittenAt) -lt $NowEveryMs) { return }
 
-    $doc = [ordered]@{ writtenAt = $Now; hubOk = $hubOk; tools = @($tools); apps = @($apps) }
+    $doc = [ordered]@{ writtenAt = $Now; hubOk = $hubOk; apps = $apps }
     $temp = "$NowFile.tmp"
     [IO.File]::WriteAllText($temp, ($doc | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
     for ($i = 0; $i -lt 10; $i++) {
@@ -341,9 +440,26 @@ $script:grantsSavedAt = 0
 $script:nowContent = $null
 $script:nowWrittenAt = 0
 $script:launcherCheckedAt = (NowMs) + 30000   # not in the first moments: a sign-in starts it by itself
+
+# The catalog from last time, so the first round can apply rules before the hub answers. Rebuilt soon.
+$script:catalog = @{}
+if (Test-Path "$KidLockDir\catalog.json") {
+    try { (Get-Content "$KidLockDir\catalog.json" -Raw | ConvertFrom-Json).apps | ForEach-Object { $script:catalog[$_.id] = $_ } } catch {}
+}
+
 Read-Grants
+# First run ever (no grants file): switch the everyday tools on until the hub says otherwise, so his
+# screen isn't empty and locked while we first reach the hub.
+if (-not (Test-Path $GrantsFile)) {
+    foreach ($id in @($script:config.defaultOn)) { $script:grants[$id] = @{ endsAt = $null; minutes = $null } }
+    $script:hubSeenAt = NowMs
+    Save-Grants
+}
+
 Start-KidLockEngine
 Write-KidLog "agent started (version $AgentVersion, hub $($script:config.hub))" $Who
+# Look at what's installed now, so the first round can apply rules even before the hub is reached.
+try { [void](Build-Catalog) } catch { Write-KidLog "could not read the installed apps: $($_.Exception.Message)" $Who }
 try { Disable-KidWidgets $Who } catch { Write-KidLog "could not switch widgets off: $($_.Exception.Message)" $Who }
 
 $lines = Get-Content $KidLockLog -ErrorAction SilentlyContinue

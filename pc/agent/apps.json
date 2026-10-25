@@ -1,22 +1,67 @@
 {
   "user": "Alejandro",
   "hub": "http://192.168.0.11:8774",
-  "tools": [
-    { "label": "Calculator",    "package": "Microsoft.WindowsCalculator", "aumid": "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App" },
-    { "label": "Notepad",       "package": "Microsoft.WindowsNotepad",    "aumid": "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App" },
-    { "label": "Paint",         "package": "Microsoft.Paint",             "aumid": "Microsoft.Paint_8wekyb3d8bbwe!App" },
-    { "label": "Paint 3D",      "package": "Microsoft.MSPaint",           "aumid": "Microsoft.MSPaint_8wekyb3d8bbwe!Microsoft.MSPaint" },
-    { "label": "Photos",        "package": "Microsoft.Windows.Photos",    "aumid": "Microsoft.Windows.Photos_8wekyb3d8bbwe!App" },
-    { "label": "Camera",        "package": "Microsoft.WindowsCamera",     "aumid": "Microsoft.WindowsCamera_8wekyb3d8bbwe!App" },
-    { "label": "Snipping Tool", "package": "Microsoft.ScreenSketch",      "aumid": "Microsoft.ScreenSketch_8wekyb3d8bbwe!App" }
+
+  "_comment": "Every app on the PC is switchable from the parents' app. Packaged (Store) apps are found automatically. Desktop programs (browsers, Roblox) are listed below. The tools in defaultOn start switched on. The apps in blockPackaged/blockDesktop are never offered and stay blocked: they would let him leave the locked setup.",
+
+  "defaultOn": [
+    "microsoft.windowscalculator", "microsoft.windowsnotepad", "microsoft.paint",
+    "microsoft.mspaint", "microsoft.windows.photos", "microsoft.windowscamera", "microsoft.screensketch"
   ],
-  "apps": [
-    {
-      "id": "roblox",
-      "label": "Roblox",
-      "signer": "O=ROBLOX CORPORATION, L=SAN MATEO, S=CALIFORNIA, C=US",
+
+  "blockPackaged": [
+    "Microsoft.WindowsTerminal", "Microsoft.WindowsStore", "MicrosoftCorporationII.QuickAssist",
+    "Microsoft.Windows.DevHome", "Microsoft.PowerAutomateDesktop", "Microsoft.SecHealthUI",
+    "microsoft.windowscommunicationsapps"
+  ],
+
+  "blockDesktop": ["git-bash", "git-cmd", "git-gui", "node", "tailscale-ipn"],
+
+  "desktop": [
+    { "id": "roblox", "label": "Roblox",
       "launch": "%LOCALAPPDATA%\\Roblox\\Versions\\*\\RobloxPlayerBeta.exe",
-      "processes": ["RobloxPlayerBeta", "RobloxPlayerLauncher", "RobloxPlayerInstaller", "RobloxCrashHandler", "RobloxStudioBeta", "RobloxStudioInstaller"]
-    }
-  ]
+      "processes": ["RobloxPlayerBeta", "RobloxPlayerLauncher", "RobloxCrashHandler", "RobloxPlayerInstaller", "RobloxStudioBeta"],
+      "signerWide": true },
+    { "id": "chrome", "label": "Google Chrome",
+      "launch": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "processes": ["chrome"] },
+    { "id": "msedge", "label": "Microsoft Edge",
+      "launch": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "processes": ["msedge"] }
+  ],
+
+  "labels": {
+    "microsoft.windowscalculator": "Calculator",
+    "microsoft.windowsnotepad": "Notepad",
+    "microsoft.paint": "Paint",
+    "microsoft.mspaint": "Paint 3D",
+    "microsoft.windows.photos": "Photos",
+    "microsoft.windowscamera": "Camera",
+    "microsoft.screensketch": "Snipping Tool",
+    "microsoft.microsoft3dviewer": "3D Viewer",
+    "dolbylaboratories.dolbyatmos": "Dolby Atmos",
+    "microsoft.bingnews": "News",
+    "msteams": "Microsoft Teams",
+    "microsoft.outlookforwindows": "Outlook",
+    "microsoft.xboxapp": "Xbox Console Companion",
+    "microsoft.skypeapp": "Skype",
+    "microsoft.windowsmaps": "Maps",
+    "microsoft.office.onenote": "OneNote",
+    "microsoft.microsoftstickynotes": "Sticky Notes",
+    "microsoft.bingweather": "Weather",
+    "microsoft.mixedreality.portal": "Mixed Reality Portal",
+    "microsoft.windowsalarms": "Clock",
+    "microsoft.windowssoundrecorder": "Sound Recorder",
+    "microsoft.microsoftsolitairecollection": "Solitaire",
+    "microsoft.todos": "To Do",
+    "microsoft.microsoftofficehub": "Microsoft 365",
+    "microsoft.yourphone": "Phone Link",
+    "microsoft.gamingapp": "Xbox",
+    "microsoft.gethelp": "Get Help",
+    "microsoft.zunevideo": "Films & TV",
+    "microsoft.windowsfeedbackhub": "Feedback Hub",
+    "microsoft.xboxgamingoverlay": "Game Bar",
+    "clipchamp.clipchamp": "Clipchamp",
+    "microsoft.zunemusic": "Media Player"
+  }
 }

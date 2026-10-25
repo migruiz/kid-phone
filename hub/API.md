@@ -174,11 +174,13 @@ stops working. Apps and switches are kept.
 The apps on the PC that the parents can switch on, sent when the PC's agent starts and whenever
 the list changes:
 ```json
-{"apps":[{"id":"roblox","label":"Roblox","iconPng":"<base64 PNG, ≤ 192×192, optional>"}]}
+{"apps":[{"id":"roblox","label":"Roblox","iconPng":"<base64 PNG, ≤ 192×192, optional>","defaultAllowed":false}]}
 ```
 → `200 {"ok":true}` · `400 {"error":"bad_id"}` (nothing is saved). Bodies may be at most 2 MB.
 The same rules as `PUT /kid/apps`: apps missing from the list are kept as `installed:false` with
-their switch, new apps start not allowed, a missing or bad icon keeps the earlier one.
+their switch, a missing or bad icon keeps the earlier one. A **new** app starts not allowed, unless
+it carries `"defaultAllowed":true` (the PC's everyday tools, which start switched on); an app the
+hub already knows keeps whatever switch the parents last set, whatever `defaultAllowed` says.
 
 ### `GET /pc/state?since=<version>&wait=<seconds>`
 ```json

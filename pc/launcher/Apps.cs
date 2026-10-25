@@ -7,21 +7,29 @@ using System.Windows.Media.Imaging;
 
 namespace KidLock.Launcher
 {
-    /// <summary>Finding, drawing and opening the tools and apps.</summary>
+    /// <summary>Finding, drawing and opening the apps (the everyday tools among them).</summary>
     static class Apps
     {
         const int IconSize = 256;
         static readonly Dictionary<string, BitmapSource> icons = new Dictionary<string, BitmapSource>(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>A tool's icon, as Start shows it; cached.</summary>
-        public static BitmapSource ToolIcon(Tool tool, int colorIndex) =>
-            Cached("tool:" + tool.Aumid, () => Native.ShellIcon(@"shell:AppsFolder\" + tool.Aumid, IconSize), tool.Label, colorIndex);
+        /// <summary>
+        /// The app's icon, as Start or Explorer shows it: a packaged app's from shell:AppsFolder, a
+        /// desktop program's from its exe, or the first letter when there is none. Cached.
+        /// </summary>
+        public static BitmapSource Icon(PcApp app)
+        {
+            int color = ColorFor(app.Id);
+            if (app.IsPackaged)
+                return Cached("aumid:" + app.Aumid, () => Native.ShellIcon(@"shell:AppsFolder\" + app.Aumid, IconSize), app.Label, color);
+            var exe = Exe(app);
+            return exe == null
+                ? Cached("letter:" + app.Id, () => null, app.Label, color)
+                : Cached("exe:" + exe, () => Native.ShellIcon(exe, IconSize), app.Label, color);
+        }
 
-        /// <summary>An app's icon from its exe (or a letter if the exe isn't there); cached per exe.</summary>
-        public static BitmapSource AppIcon(PcApp app, string exe, int colorIndex) =>
-            exe == null
-                ? Cached("letter:" + app.Id, () => null, app.Label, colorIndex)
-                : Cached("exe:" + exe, () => Native.ShellIcon(exe, IconSize), app.Label, colorIndex);
+        /// <summary>A desktop program whose exe isn't on the PC (yet). A packaged app is never "missing".</summary>
+        public static bool Missing(PcApp app) => !app.IsPackaged && Exe(app) == null;
 
         static BitmapSource Cached(string key, Func<BitmapSource> load, string label, int colorIndex)
         {
@@ -95,28 +103,33 @@ namespace KidLock.Launcher
 
         // ---- Opening ----
 
-        /// <summary>Opens a tool. Throws if Windows refuses.</summary>
-        public static void Open(Tool tool)
+        /// <summary>Opens an app: a packaged one through Windows, a desktop one by its exe. Throws if it can't.</summary>
+        public static void Open(PcApp app)
+        {
+            if (app.IsPackaged)
+            {
+                OpenPackaged(app.Aumid, app.Label);
+                return;
+            }
+            var exe = Exe(app, fresh: true) ?? throw new FileNotFoundException("not found", app.Launch);
+            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe) });
+        }
+
+        /// <summary>Starts (or brings forward) a Store-style app; falls back to Explorer. Throws if both fail.</summary>
+        static void OpenPackaged(string aumid, string label)
         {
             int hr;
             try
             {
-                hr = Native.ActivateApp(tool.Aumid);
+                hr = Native.ActivateApp(aumid);
             }
             catch (Exception e)
             {
                 hr = e.HResult;
             }
             if (hr == 0) return;
-            Log.Write($"{tool.Label}: activation failed (0x{hr:X8}); trying Explorer");
-            Process.Start(new ProcessStartInfo("explorer.exe", @"shell:AppsFolder\" + tool.Aumid) { UseShellExecute = false });
-        }
-
-        /// <summary>Opens an app by its exe. Throws if it can't be found or started.</summary>
-        public static void Open(PcApp app)
-        {
-            var exe = Exe(app, fresh: true) ?? throw new FileNotFoundException("not found", app.Launch);
-            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe) });
+            Log.Write($"{label}: activation failed (0x{hr:X8}); trying Explorer");
+            Process.Start(new ProcessStartInfo("explorer.exe", @"shell:AppsFolder\" + aumid) { UseShellExecute = false });
         }
     }
 }

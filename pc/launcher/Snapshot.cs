@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -36,10 +37,10 @@ namespace KidLock.Launcher
             Home(state, now, Path.Combine(options.SnapshotDir, "home.png"));
             if (!given)
             {
-                // Roblox isn't on every PC: Edge stands in, to see a real exe icon on the button.
+                // Roblox isn't on every PC: Edge stands in, to see a real desktop-program icon on a button.
                 Home(Sample(now, Roblox(now, @"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe")), now, Path.Combine(options.SnapshotDir, "home-standin.png"));
-                var stale = Sample(now, Roblox(now, null));
-                stale.WrittenAt = now - 10 * 60_000;
+                // The agent not running: only the everyday tools, with a quiet note.
+                var stale = new NowState { WrittenAt = now - 10 * 60_000, HubOk = false };
                 Home(stale, now, Path.Combine(options.SnapshotDir, "home-stale.png"));
             }
 
@@ -64,10 +65,21 @@ namespace KidLock.Launcher
             Minutes = 60,
         };
 
-        static NowState Sample(long now, PcApp app)
+        /// <summary>A realistic grid: Roblox (45 min left), Chrome, and five everyday tools, all allowed.</summary>
+        static NowState Sample(long now, PcApp roblox)
         {
-            var state = new NowState { WrittenAt = now, HubOk = true, Tools = new List<Tool>(NowState.DefaultTools) };
-            state.Apps.Add(app);
+            var chrome = new PcApp
+            {
+                Id = "exe.chrome",
+                Label = "Google Chrome",
+                Launch = @"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                Allowed = true,
+            };
+            var tools = NowState.DefaultTools.Where(t => t.Label != "Paint 3D" && t.Label != "Snipping Tool");
+            var state = new NowState { WrittenAt = now, HubOk = true };
+            state.Apps.Add(roblox);
+            state.Apps.Add(chrome);
+            state.Apps.AddRange(tools);
             return state;
         }
 

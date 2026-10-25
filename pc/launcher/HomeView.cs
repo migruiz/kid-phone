@@ -16,16 +16,17 @@ namespace KidLock.Launcher
 {
     /// <summary>
     /// The home screen itself, like the phone's: "Hi Alejandro 👋", the time and the battery, then a
-    /// big button for each app he may open now (switched-on apps first, with their minutes left),
-    /// then the everyday tools. Used by the window, and by --snapshot to draw it into a picture.
+    /// big button for every app he may open now (the everyday tools among them), with the minutes
+    /// left on any that are on for a while. Used by the window, and by --snapshot to draw it to a picture.
     /// </summary>
     sealed class HomeView : Grid
     {
         const double Gap = 28;
+        const double MinTileHeight = 150; // below this the buttons scroll instead of shrinking more
 
         readonly TextBlock greeting, time, date, note;
         readonly Border battery;
-        readonly Grid tileArea;
+        readonly ScrollViewer tileArea;
         /// <summary>The buttons in rows, each row centred (so a short last row sits in the middle).</summary>
         readonly StackPanel rows = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         readonly Dictionary<string, Tile> tiles = new Dictionary<string, Tile>();
@@ -84,9 +85,14 @@ namespace KidLock.Launcher
             DockPanel.SetDock(note, Dock.Bottom);
             page.Children.Add(note);
 
-            // ---- The buttons, as big as fits ----
-            tileArea = new Grid { Margin = new Thickness(0, 24, 0, 0) };
-            tileArea.Children.Add(rows);
+            // ---- The buttons, as big as fits; they scroll only if there are too many to fit ----
+            tileArea = new ScrollViewer
+            {
+                Margin = new Thickness(0, 24, 0, 0),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = rows,
+            };
             tileArea.SizeChanged += (s, e) => LayoutTiles();
             page.Children.Add(tileArea);
         }
@@ -95,39 +101,28 @@ namespace KidLock.Launcher
         public void Update(NowState state, long now)
         {
             bool fresh = state != null && state.IsFresh(now);
-            var tools = state != null && state.Tools.Count > 0 ? state.Tools : NowState.DefaultTools.ToList();
-            var apps = fresh ? state.Apps.Where(a => a.IsOn(now)).OrderBy(a => a.Label, StringComparer.CurrentCultureIgnoreCase).ToList() : new List<PcApp>();
+            // When all is well the agent lists exactly what's allowed; when it's quiet, the everyday
+            // tools, so his screen is never empty. Everything is sorted by name.
+            var apps = (fresh ? state.Apps.Where(a => a.IsOn(now)) : NowState.DefaultTools)
+                .OrderBy(a => a.Label, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
 
-            // The buttons: apps switched on first, then the tools.
             var wanted = new List<string>();
             foreach (var app in apps)
             {
-                string key = "app:" + app.Id;
+                string key = app.Id;
                 wanted.Add(key);
-                var exe = Apps.Exe(app);
-                int color = Apps.ColorFor(app.Id);
                 if (!tiles.TryGetValue(key, out var tile))
                 {
                     var a = app;
-                    tiles[key] = tile = new Tile(app.Label, color, () => Open(key, a));
+                    tiles[key] = tile = new Tile(app.Label, Apps.ColorFor(app.Id), () => Open(key, a));
                 }
-                tile.SetIcon(Apps.AppIcon(app, exe, color));
+                tile.SetIcon(Apps.Icon(app));
                 tile.SetLabel(app.Label);
                 tile.SetMinutes(app.EndsAt is long end ? MinutesLeft(end, now) : (long?)null);
-                tile.SetMissing(exe == null);
-            }
-            for (int i = 0; i < tools.Count; i++)
-            {
-                var tool = tools[i];
-                string key = "tool:" + tool.Aumid;
-                wanted.Add(key);
-                if (!tiles.TryGetValue(key, out var tile))
-                {
-                    var t = tool;
-                    tiles[key] = tile = new Tile(tool.Label, i, () => Open(key, t));
-                    tile.SetIcon(Apps.ToolIcon(tool, i));
-                }
-                tile.SetLabel(tool.Label);
+                tile.SetMissing(Apps.Missing(app));
+                // A tile reused for a changed app (same id) relearns how to open it.
+                tile.Open = () => Open(key, app);
             }
             if (!wanted.SequenceEqual(order))
             {
@@ -148,24 +143,27 @@ namespace KidLock.Launcher
         /// <summary>"45 min": whole minutes, rounded up, at least 1 (as on the phone).</summary>
         public static long MinutesLeft(long endsAt, long now) => Math.Max(1, (endsAt - now + 59_999) / 60_000);
 
-        void Open(string key, object what)
+        void Open(string key, PcApp app)
         {
             if (!tiles.TryGetValue(key, out var tile)) return;
             try
             {
-                if (what is Tool tool) Apps.Open(tool);
-                else if (what is PcApp app) Apps.Open(app);
+                Apps.Open(app);
                 Log.Write($"opened {key}");
                 tile.Flash("Opening…", TimeSpan.FromSeconds(3));
             }
             catch (Exception e)
             {
                 Log.Write($"could not open {key}: {e.Message}");
-                tile.Flash(what is PcApp ? "Not found on this PC" : "Didn't open. Try again", TimeSpan.FromSeconds(4));
+                tile.Flash(app.IsPackaged ? "Didn't open. Try again" : "Not found on this PC", TimeSpan.FromSeconds(4));
             }
         }
 
-        /// <summary>As many columns as makes the buttons big and the rows few; centred.</summary>
+        /// <summary>
+        /// Lays the buttons out in centred rows, as big as fits. The columns grow with the number of
+        /// apps so the rows stay few; the buttons shrink to fit the height, but only to a point — past
+        /// that (a great many apps) they keep a friendly size and the area scrolls.
+        /// </summary>
         void LayoutTiles()
         {
             foreach (StackPanel row in rows.Children) row.Children.Clear();
@@ -173,10 +171,11 @@ namespace KidLock.Launcher
             int n = order.Count;
             double width = tileArea.ActualWidth, height = tileArea.ActualHeight;
             if (n == 0 || width <= 0 || height <= 0) return;
-            int cols = n <= 4 ? n : n <= 10 ? (n + 1) / 2 : 5;
+            int cols = Columns(n);
             int rowCount = (n + cols - 1) / cols;
             double w = Math.Min(310, (width - cols * Gap) / cols);
-            double h = Math.Min(w * 0.86, (height - rowCount * Gap) / rowCount);
+            // Fit the rows into the height, but never below a readable size (then it scrolls).
+            double h = Math.Min(w * 0.86, Math.Max(MinTileHeight, (height - rowCount * Gap) / rowCount));
             w = Math.Min(w, h / 0.72); // never flat and wide
             StackPanel current = null;
             for (int i = 0; i < n; i++)
@@ -191,6 +190,10 @@ namespace KidLock.Launcher
                 current.Children.Add(tile);
             }
         }
+
+        /// <summary>How many buttons to a row: few for a handful, up to five once there are many.</summary>
+        static int Columns(int n) =>
+            n <= 4 ? n : n <= 6 ? 3 : n <= 8 ? 4 : 5;
 
         void UpdateBattery()
         {
@@ -270,14 +273,15 @@ namespace KidLock.Launcher
         readonly Image image = new Image { Stretch = Stretch.Uniform };
         readonly TextBlock label, status, badgeText;
         readonly ScaleTransform scale = new ScaleTransform(1, 1);
-        readonly Action open;
+        /// <summary>What a tap does; replaced each refresh, so a reused tile opens the current app.</summary>
+        public Action Open;
         readonly DispatcherTimer flashTimer = new DispatcherTimer();
         bool pressed, missing;
         string flash;
 
         public Tile(string text, int colorIndex, Action open)
         {
-            this.open = open;
+            this.Open = open;
             var (light, _) = Theme.TileColor(colorIndex);
             Cursor = Cursors.Hand;
             RenderTransformOrigin = new Point(0.5, 0.5);
@@ -351,7 +355,7 @@ namespace KidLock.Launcher
             pressed = false;
             ReleaseMouseCapture();
             Squeeze(1, 380, new ElasticEase { Oscillations = 1, Springiness = 6 });
-            if (activate) open();
+            if (activate) Open?.Invoke();
         }
 
         void Squeeze(double to, int ms, IEasingFunction easing)

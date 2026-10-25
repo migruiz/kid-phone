@@ -8,24 +8,27 @@ using System.Windows.Threading;
 
 namespace KidLock.Launcher
 {
-    /// <summary>A Windows tool he may always open (a Store-style app, by its app ID).</summary>
-    sealed class Tool
-    {
-        public string Label;
-        public string Aumid;
-    }
-
-    /// <summary>An app the parents switch on and off from Kid Phone Parent (Roblox, …).</summary>
+    /// <summary>
+    /// An app the parents switch on and off from Kid Phone Parent. Everything he may open is one of
+    /// these now, the everyday tools (Calculator, Paint…) included: they are just apps that start on.
+    /// Each is either a packaged (Store-style) app, opened by its [Aumid], or a desktop program,
+    /// opened by its [Launch] path.
+    /// </summary>
     sealed class PcApp
     {
         public string Id;
         public string Label;
-        /// <summary>The exe, with %VARS% and * for "the newest folder that has it".</summary>
+        /// <summary>A packaged app's ID (opened and drawn through shell:AppsFolder); null for a desktop program.</summary>
+        public string Aumid;
+        /// <summary>A desktop program's exe, with %VARS% and * for "the newest folder that has it"; null for a packaged app.</summary>
         public string Launch;
         public bool Allowed;
         /// <summary>When its time is up (epoch ms, this PC's clock), or null for no time limit.</summary>
         public long? EndsAt;
         public int? Minutes;
+
+        /// <summary>A Store-style app (by Aumid), rather than a desktop program (by Launch).</summary>
+        public bool IsPackaged => !string.IsNullOrWhiteSpace(Aumid);
 
         /// <summary>On right now: allowed, and its time (if any) not over.</summary>
         public bool IsOn(long now) => Allowed && (EndsAt == null || EndsAt > now);
@@ -38,24 +41,30 @@ namespace KidLock.Launcher
     sealed class NowState
     {
         public const string DefaultPath = @"C:\ProgramData\KidLockLayout\now.json";
-        /// <summary>Older than this, the agent isn't running: only the tools are offered.</summary>
+        /// <summary>Older than this, the agent isn't running: only the everyday tools are offered.</summary>
         public const long StaleAfterMs = 2 * 60_000;
 
         public long WrittenAt;
         public bool HubOk;
-        public List<Tool> Tools = new List<Tool>();
         public List<PcApp> Apps = new List<PcApp>();
 
-        /// <summary>The everyday Windows tools, used when now.json is missing or has none.</summary>
-        public static readonly Tool[] DefaultTools =
+        /// <summary>
+        /// The everyday Windows tools, shown only when now.json is missing or stale, so his screen is
+        /// never empty. In normal use the agent lists what's allowed (these among it) in "apps".
+        /// </summary>
+        public static readonly PcApp[] DefaultTools =
         {
-            new Tool { Label = "Calculator", Aumid = "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App" },
-            new Tool { Label = "Notepad", Aumid = "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App" },
-            new Tool { Label = "Paint", Aumid = "Microsoft.Paint_8wekyb3d8bbwe!App" },
-            new Tool { Label = "Photos", Aumid = "Microsoft.Windows.Photos_8wekyb3d8bbwe!App" },
-            new Tool { Label = "Camera", Aumid = "Microsoft.WindowsCamera_8wekyb3d8bbwe!App" },
-            new Tool { Label = "Snipping Tool", Aumid = "Microsoft.ScreenSketch_8wekyb3d8bbwe!App" },
+            Packaged("microsoft.windowscalculator", "Calculator", "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"),
+            Packaged("microsoft.windowsnotepad", "Notepad", "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App"),
+            Packaged("microsoft.paint", "Paint", "Microsoft.Paint_8wekyb3d8bbwe!App"),
+            Packaged("microsoft.mspaint", "Paint 3D", "Microsoft.MSPaint_8wekyb3d8bbwe!App"),
+            Packaged("microsoft.windows.photos", "Photos", "Microsoft.Windows.Photos_8wekyb3d8bbwe!App"),
+            Packaged("microsoft.windowscamera", "Camera", "Microsoft.WindowsCamera_8wekyb3d8bbwe!App"),
+            Packaged("microsoft.screensketch", "Snipping Tool", "Microsoft.ScreenSketch_8wekyb3d8bbwe!App"),
         };
+
+        static PcApp Packaged(string id, string label, string aumid) =>
+            new PcApp { Id = id, Label = label, Aumid = aumid, Allowed = true, EndsAt = null, Minutes = null };
 
         public static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
@@ -83,17 +92,13 @@ namespace KidLock.Launcher
                 WrittenAt = Long(root, "writtenAt") ?? 0,
                 HubOk = Bool(root, "hubOk") ?? false,
             };
-            foreach (var t in Objects(root, "tools"))
-            {
-                var tool = new Tool { Label = Str(t, "label"), Aumid = Str(t, "aumid") };
-                if (!string.IsNullOrWhiteSpace(tool.Aumid)) state.Tools.Add(tool);
-            }
             foreach (var a in Objects(root, "apps"))
             {
                 var app = new PcApp
                 {
                     Id = Str(a, "id"),
                     Label = Str(a, "label"),
+                    Aumid = Str(a, "aumid"),
                     Launch = Str(a, "launch"),
                     Allowed = Bool(a, "allowed") ?? false,
                     EndsAt = Long(a, "endsAt"),

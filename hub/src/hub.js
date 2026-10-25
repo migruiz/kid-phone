@@ -315,8 +315,10 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
   }
 
   /**
-   * A device's full list of apps: [{ id, label, iconPng? }] already checked by the route. Apps not
-   * listed are kept as installed:false, with their switch. New apps start switched off.
+   * A device's full list of apps: [{ id, label, iconPng?, defaultAllowed? }] already checked by the
+   * route. Apps not listed are kept as installed:false, with their switch. A new app starts
+   * switched off, unless the device marks it `defaultAllowed` (the PC's everyday tools start on).
+   * An app already known keeps whatever switch the parents last set, whatever `defaultAllowed` says.
    */
   function updateAppList(device, items) {
     const apps = appsOf(device);
@@ -328,7 +330,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
       listed.add(item.id);
       let app = Object.hasOwn(apps, item.id) ? apps[item.id] : null;
       if (!app) {
-        app = apps[item.id] = { label: item.label, allowed: false, installed: true, icon: null };
+        app = apps[item.id] = { label: item.label, allowed: Boolean(item.defaultAllowed), installed: true, icon: null };
         added++;
       }
       app.label = item.label;
@@ -393,7 +395,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     return { token: newPcToken };
   }
 
-  /** The PC's apps the parents can switch on: [{ id, label, iconPng? }] already checked by the route. */
+  /** The PC's apps the parents can switch on: [{ id, label, iconPng?, defaultAllowed? }] already checked by the route. */
   function putPcApps({ apps }) {
     const summary = updateAppList('pc', apps);
     commit();
