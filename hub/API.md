@@ -222,7 +222,8 @@ Body: `{"fcmToken":"..."}` → `200 {"ok":true}`. Called when FCM rotates the to
  "parents":[{"name":"Miguel","me":true},{"name":"Sonia","me":false}],
  "time":<epoch ms>}
 ```
-Apps sorted by label (installed first). An app switched on for a while also has `minutes` (as
+Apps are ordered installed first, then by how often the parents flip the app's switch (most first,
+so the ones they really use sit at the top of a long list), then the rest by label. An app switched on for a while also has `minutes` (as
 given) and `remainingSeconds`. `pc`: the child's PC, the same way (its apps by `id`);
 `pc.paired` is false and `pc.apps` empty until a PC has registered. `requests`: pending ones and the last 20 others, newest first.
 In a request, `decidedBy` and `minutes` are `null` until a parent answers (`minutes` `0` means

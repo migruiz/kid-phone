@@ -103,6 +103,37 @@ test('apps are sorted installed first, then by label', async (t) => {
   assert.deepEqual(labels, ['Bee', 'com.nolabel', 'zebra', 'Aardvark']);
 });
 
+test('the apps parents switch most often come first, then the rest by name', async (t) => {
+  const h = await startHub();
+  t.after(h.stop);
+  const { kidToken, Miguel } = await setupFamily(h, ['Miguel']);
+  await putApps(h, kidToken, {
+    apps: [
+      { package: 'com.apple', label: 'Apple' },
+      { package: 'com.banana', label: 'Banana' },
+      { package: 'com.mango', label: 'Mango' },
+      { package: 'com.zucchini', label: 'Zucchini' },
+    ],
+  });
+  // All brand new, none flipped yet: plain alphabetical.
+  assert.deepEqual((await appsOf(h, Miguel)).map((a) => a.label), ['Apple', 'Banana', 'Mango', 'Zucchini']);
+
+  const flip = (pkg, allowed, minutes) =>
+    h.parent('PUT', `/parent/apps/${pkg}`, { token: Miguel, body: minutes != null ? { allowed, minutes } : { allowed } });
+
+  // Mango flipped three times, Zucchini twice, Apple once, Banana never.
+  await flip('com.mango', true); await flip('com.mango', false); await flip('com.mango', true);
+  await flip('com.zucchini', true); await flip('com.zucchini', false);
+  await flip('com.apple', true);
+  // Re-timing an app that is already on is not a flip, so Apple stays on one use (otherwise it
+  // would tie Zucchini and sort before it).
+  await flip('com.apple', true, 30);
+
+  assert.deepEqual((await appsOf(h, Miguel)).map((a) => a.label), ['Mango', 'Zucchini', 'Apple', 'Banana']);
+  // The count is a private ranking signal; it isn't sent to the app.
+  assert.ok(!('uses' in (await appsOf(h, Miguel))[0]));
+});
+
 test('request bodies are capped: 8 MB for the app list, 64 KB elsewhere', async (t) => {
   const h = await startHub();
   t.after(h.stop);

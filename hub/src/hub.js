@@ -330,7 +330,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
       listed.add(item.id);
       let app = Object.hasOwn(apps, item.id) ? apps[item.id] : null;
       if (!app) {
-        app = apps[item.id] = { label: item.label, allowed: Boolean(item.defaultAllowed), installed: true, icon: null };
+        app = apps[item.id] = { label: item.label, allowed: Boolean(item.defaultAllowed), installed: true, icon: null, uses: 0 };
         added++;
       }
       app.label = item.label;
@@ -585,9 +585,17 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     return out;
   }
 
-  /** A device's apps for the parents, installed first, then by label. key: "package" or "id". */
+  /**
+   * A device's apps for the parents: installed first, then the ones whose switch the parents flip
+   * most (so the handful they really use float to the top of a long list), then the rest by name.
+   * key: "package" or "id".
+   */
   function parentApps(device, now, key) {
     return Object.entries(appsOf(device))
+      .sort(([xid, x], [yid, y]) => Number(y.installed) - Number(x.installed) ||
+        (y.uses ?? 0) - (x.uses ?? 0) ||
+        x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }) ||
+        xid.localeCompare(yid))
       .map(([id, a]) => {
         const out = { [key]: id, label: a.label, allowed: a.allowed, installed: a.installed, hasIcon: Boolean(a.icon) };
         if (a.allowed && a.allowedUntil) {
@@ -595,10 +603,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
           out.remainingSeconds = secondsUntil(a.allowedUntil, now);
         }
         return out;
-      })
-      .sort((x, y) => Number(y.installed) - Number(x.installed) ||
-        x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }) ||
-        x[key].localeCompare(y[key]));
+      });
   }
 
   function parentState(parent) {
@@ -648,6 +653,9 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     if (!app) throw new HttpError(404, 'not_found', 'No such app');
     const timed = allowed ? minutes : null;
     if (app.allowed !== allowed || timed !== null || (app.allowedUntil ?? null) !== null) {
+      // Count a parent flipping the switch on or off (not a re-timing, not a timer running out),
+      // so the parents' app can show the apps they switch most at the top of the list.
+      if (app.allowed !== allowed) app.uses = (app.uses ?? 0) + 1;
       switchApp(app, allowed, timed, clock.now());
       commit();
       log(`${named(device, id)} ${allowed ? (timed ? `allowed for ${timed} minutes` : 'allowed') : 'blocked'} by ${parent.name}`);
