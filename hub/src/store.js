@@ -1,4 +1,5 @@
-// State in DATA_DIR/state.json (atomic writes), icons as DATA_DIR/icons/<package>.png.
+// State in DATA_DIR/state.json (atomic writes), icons as DATA_DIR/icons/<package>.png (the phone's
+// apps) and DATA_DIR/icons-pc/<id>.png (the PC's).
 
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -12,6 +13,14 @@ export function isValidPackage(name) {
   return typeof name === 'string' && name.length <= 255 && PACKAGE_NAME.test(name);
 }
 
+// The PC's own names for its apps, such as "roblox": lower case letters, digits, dots and dashes,
+// starting with a letter or digit (so never ".." or a path).
+const PC_APP_ID = /^[a-z0-9][a-z0-9.-]{0,63}$/;
+
+export function isValidPcAppId(id) {
+  return typeof id === 'string' && PC_APP_ID.test(id);
+}
+
 function freshState() {
   return {
     schema: 1,
@@ -19,9 +28,12 @@ function freshState() {
     version: 0,
     kid: { tokenHash: null, name: '', lastSeen: null, appVersion: null, registeredAt: null },
     replaceKidUntil: 0,
+    pc: { tokenHash: null, lastSeen: null, appVersion: null, registeredAt: null }, // the child's PC
+    replacePcUntil: 0,
     pairing: { codeHash: null, expiresAt: 0, wrongCodes: 0, lockedUntil: 0 },
     parents: [], // { name, tokenHash, fcmToken, appVersion, pairedAt }
-    apps: {}, // package -> { label, allowed, installed, icon (short hash of the PNG) or null }
+    apps: {}, // package -> { label, allowed, installed, icon (short hash of the PNG) or null, allowedUntil, minutes }
+    pcApps: {}, // the PC's apps, the same way by id
     requests: [], // see hub.js
     battery: null, // the child's last battery report: { percent, charging, at, alerted } (see hub.js)
   };
@@ -70,12 +82,14 @@ function load(file) {
 export function openStore(dataDir, { log = () => {} } = {}) {
   const file = join(dataDir, 'state.json');
   const iconsDir = join(dataDir, 'icons');
+  const pcIconsDir = join(dataDir, 'icons-pc');
   mkdirSync(iconsDir, { recursive: true });
+  mkdirSync(pcIconsDir, { recursive: true });
 
   const saved = load(file);
   const fresh = freshState();
   const state = saved
-    ? { ...fresh, ...saved, kid: { ...fresh.kid, ...saved.kid }, pairing: { ...fresh.pairing, ...saved.pairing } }
+    ? { ...fresh, ...saved, kid: { ...fresh.kid, ...saved.kid }, pc: { ...fresh.pc, ...saved.pc }, pairing: { ...fresh.pairing, ...saved.pairing } }
     : fresh;
 
   let lazyTimer = null;
@@ -102,16 +116,20 @@ export function openStore(dataDir, { log = () => {} } = {}) {
     lazyTimer.unref();
   }
 
-  const iconFile = (pkg) => (isValidPackage(pkg) ? join(iconsDir, `${pkg}.png`) : null);
+  /** The icon file of a phone app (device "phone") or a PC app ("pc"); null for a bad name. */
+  function iconFile(id, device) {
+    if (device === 'pc') return isValidPcAppId(id) ? join(pcIconsDir, `${id}.png`) : null;
+    return isValidPackage(id) ? join(iconsDir, `${id}.png`) : null;
+  }
 
-  function writeIcon(pkg, png) {
-    const target = iconFile(pkg);
-    if (!target) throw new Error('invalid package name');
+  function writeIcon(id, png, device = 'phone') {
+    const target = iconFile(id, device);
+    if (!target) throw new Error('invalid app name');
     writeAtomic(target, png, false); // icons are cosmetic; skip the fsync cost on the SD card
   }
 
-  function readIcon(pkg) {
-    const target = iconFile(pkg);
+  function readIcon(id, device = 'phone') {
+    const target = iconFile(id, device);
     if (!target) return null;
     try {
       return readFileSync(target);

@@ -1,7 +1,8 @@
-// Port 8774: the child's phone, home network only (see net.js).
+// Port 8774: the child's phone and his PC, home network only (see net.js). Each has its own token,
+// and each route takes only its own (kind 'kid' for the phone, 'pc' for the PC).
 
 import { HttpError, MB, appSwitch, optionalString, requiredString } from './http.js';
-import { isValidPackage } from './store.js';
+import { isValidPackage, isValidPcAppId } from './store.js';
 
 function checkApps(body) {
   if (!Array.isArray(body.apps)) throw new HttpError(400, 'bad_request', '"apps" must be a list');
@@ -18,8 +19,24 @@ function checkApps(body) {
   return [...byPackage.values()];
 }
 
+function checkPcApps(body) {
+  if (!Array.isArray(body.apps)) throw new HttpError(400, 'bad_request', '"apps" must be a list');
+  const byId = new Map(); // an id listed twice: the last one wins
+  for (const item of body.apps) {
+    if (item === null || typeof item !== 'object') throw new HttpError(400, 'bad_request', 'Each app must be an object');
+    if (!isValidPcAppId(item.id)) {
+      throw new HttpError(400, 'bad_id', `Not a valid app id (lower case letters, digits, dots and dashes): ${String(item.id).slice(0, 80)}`);
+    }
+    const label = typeof item.label === 'string' && item.label.trim() ? item.label.trim().slice(0, 100) : item.id;
+    const iconPng = typeof item.iconPng === 'string' && item.iconPng ? item.iconPng : undefined;
+    byId.set(item.id, { id: item.id, label, iconPng });
+  }
+  return [...byId.values()];
+}
+
 export function kidRoutes(hub) {
-  async function getState({ url, res }) {
+  /** A state answer, held back (long-poll) while `since` is the current version, up to `wait` seconds. */
+  const longPoll = (answer) => async ({ url, res }) => {
     const params = url.searchParams;
     const wait = Math.min(30, Math.max(0, Math.floor(Number(params.get('wait')) || 0)));
     if (wait > 0 && params.has('since') && Number(params.get('since')) === hub.currentVersion()) {
@@ -30,10 +47,10 @@ export function kidRoutes(hub) {
       res.off('close', onClose);
       if (gone.signal.aborted) return undefined;
     }
-    return hub.kidState();
-  }
+    return answer();
+  };
 
-  return [
+  const phone = [
     {
       method: 'POST',
       path: '/kid/register',
@@ -58,7 +75,7 @@ export function kidRoutes(hub) {
         return hub.setAllowed({ name: "the child's phone" }, params.package, allowed, minutes);
       },
     },
-    { method: 'GET', path: '/kid/state', handle: getState },
+    { method: 'GET', path: '/kid/state', handle: longPoll(hub.kidState) },
     {
       method: 'POST',
       path: '/kid/requests',
@@ -91,4 +108,22 @@ export function kidRoutes(hub) {
       handle: ({ params, body }) => hub.changeWindow({ name: "A parent on the child's phone" }, params.id, body.minutes),
     },
   ];
+
+  const pc = [
+    {
+      method: 'POST',
+      path: '/pc/register',
+      auth: false,
+      handle: ({ body, appVersion }) => hub.registerPc({ token: body.token, appVersion }),
+    },
+    {
+      method: 'PUT',
+      path: '/pc/apps',
+      limit: 2 * MB,
+      handle: ({ body }) => hub.putPcApps({ apps: checkPcApps(body) }),
+    },
+    { method: 'GET', path: '/pc/state', handle: longPoll(hub.pcState) },
+  ];
+
+  return [...phone.map((r) => ({ kind: 'kid', ...r })), ...pc.map((r) => ({ kind: 'pc', ...r }))];
 }

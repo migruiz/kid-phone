@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Alejandro's home screen on the PC, with the time warnings. .NET Framework 4.8 because every
+    Windows 11 has it built in: nothing else to install, one exe to copy (fonts are embedded).
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>KidLauncher</AssemblyName>
+    <RootNamespace>KidLock.Launcher</RootNamespace>
+    <StartupObject>KidLock.Launcher.Program</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>KidLauncher.ico</ApplicationIcon>
+    <Version>1.9.0</Version>
+    <Product>Kid Phone</Product>
+    <Description>Kid Phone home screen for the PC</Description>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- No KidLauncher.exe.config next to the exe: nothing in it is needed. -->
+    <GenerateBindingRedirectsOutputType>false</GenerateBindingRedirectsOutputType>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- JavaScriptSerializer, part of .NET Framework itself (no NuGet DLL to ship). -->
+    <Reference Include="System.Web.Extensions" />
+    <!-- Static Nunito instances (SIL Open Font License, see FONT-LICENSE-Nunito.txt at the repo root),
+         downloaded from Google Fonts (fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900).
+         The repo's nunito.ttf is a variable font, which WPF can only draw at its default weight. -->
+    <Resource Include="Fonts\*.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets this PC's .NET SDK build for .NET Framework without the old developer pack. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

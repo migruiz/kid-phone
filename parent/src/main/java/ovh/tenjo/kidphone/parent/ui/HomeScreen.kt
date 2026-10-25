@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.AlertDialog
@@ -47,6 +48,7 @@ import ovh.tenjo.kidphone.parent.Child
 import ovh.tenjo.kidphone.parent.Hub
 import ovh.tenjo.kidphone.parent.HubState
 import ovh.tenjo.kidphone.parent.Notifications
+import ovh.tenjo.kidphone.parent.PcState
 import ovh.tenjo.kidphone.ui.CallGreen
 import ovh.tenjo.kidphone.ui.Danger
 import ovh.tenjo.kidphone.ui.Group
@@ -58,9 +60,10 @@ import ovh.tenjo.kidphone.ui.ScreenHeader
 import ovh.tenjo.kidphone.ui.SectionLabel
 import ovh.tenjo.kidphone.ui.SettingsRow
 import ovh.tenjo.kidphone.ui.minutesLeft
+import ovh.tenjo.kidphone.ui.pcAppWarning
 import ovh.tenjo.kidphone.ui.UpdatesRow
 
-/** The parent app's main screen: the child's phone, and (later) its apps and call requests. */
+/** The parent app's main screen: the child's phone, its call requests and apps, and the child's PC. */
 @Composable
 fun HomeScreen() {
     var state by remember { mutableStateOf<HubState?>(null) }
@@ -81,18 +84,24 @@ fun HomeScreen() {
         }
     }
 
-    // Switches flipped here show at once, before the hub confirms.
+    // Switches flipped here show at once, before the hub confirms (the PC's apart, as a PC app's
+    // name can be the same as a phone app's).
     val pending = remember { mutableStateMapOf<String, Boolean>() }
+    val pendingPc = remember { mutableStateMapOf<String, Boolean>() }
     // Requests being answered from this screen.
     val answering = remember { mutableStateMapOf<String, Boolean>() }
     val context = LocalContext.current
     var confirmReplace by remember { mutableStateOf(false) }
+    var confirmReplacePc by remember { mutableStateOf(false) }
     var confirmUnpair by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<String?>(null) }
     val childName = state?.child?.name?.ifBlank { null } ?: Hub.childName.ifBlank { "Your child" }
     // The apps list is its own screen, opened from the "Apps" row.
     var showApps by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = showApps) { showApps = false }
+    // So is the PC's, opened from its row.
+    var showPc by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = showPc) { showPc = false }
 
     if (showApps) {
         ParentPage {
@@ -115,6 +124,38 @@ fun HomeScreen() {
                                 .onSuccess { runCatching { Hub.state() }.onSuccess { state = it } }
                                 .onFailure { info = "Couldn't change ${app.label}. Check the internet connection and try again." }
                             pending.remove(app.packageName)
+                        }
+                    },
+                )
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    } else if (showPc) {
+        ParentPage {
+            ScreenHeader(
+                "$childName's PC", onBack = { showPc = false },
+                subtitle = "Apps switched on here open on $childName's PC, in his own Windows account, while the PC is at home. " +
+                    "Switching one on asks for how long; tap it later to change the time. With a time, " +
+                    "$childName sees \"10 minutes left\", \"5 minutes left\" and a 30-second countdown, then it closes.",
+            )
+            val pc = state?.pc
+            if (pc == null) {
+                Text(error ?: "Loading…", color = Muted)
+            } else {
+                AppsGroup(
+                    apps = pc.apps.map { a -> pendingPc[a.packageName]?.let { a.copy(allowed = it) } ?: a },
+                    iconUrl = Hub::pcIconUrl,
+                    placeholder = Icons.Rounded.Computer,
+                    emptyText = "No apps yet. They appear here once $childName's PC has connected to the hub at home.",
+                    warningOf = ::pcAppWarning,
+                    goneText = "No longer on the PC",
+                    onChange = { app, on, minutes ->
+                        pendingPc[app.packageName] = on
+                        scope.launch {
+                            runCatching { Hub.setPcAllowed(app.packageName, on, minutes) }
+                                .onSuccess { runCatching { Hub.state() }.onSuccess { state = it } }
+                                .onFailure { info = "Couldn't change ${app.label} on the PC. Check the internet connection and try again." }
+                            pendingPc.remove(app.packageName)
                         }
                     },
                 )
@@ -180,6 +221,19 @@ fun HomeScreen() {
                     onClick = { showApps = true },
                 )
             }
+            st.pc?.takeIf { it.paired }?.let { pc ->
+                Spacer(Modifier.height(20.dp))
+                SectionLabel("$childName's PC")
+                Group {
+                    SettingsRow(
+                        Icons.Rounded.Computer, PcBlue, "Apps on $childName's PC", pcAppsSummary(pc),
+                        onClick = { showPc = true },
+                    )
+                }
+                pcAway(pc)?.let {
+                    Text(it, fontSize = 13.sp, color = Muted, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+                }
+            }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -197,6 +251,13 @@ fun HomeScreen() {
                 Icons.Rounded.PhoneAndroid, Color(0xFFF2760B), "Replace $childName's phone",
                 "For a new or reset phone", onClick = { confirmReplace = true },
             )
+            if (state?.pc?.paired == true) {
+                RowDivider()
+                SettingsRow(
+                    Icons.Rounded.Computer, Color(0xFFF2760B), "Replace $childName's PC",
+                    "For a reinstalled PC", onClick = { confirmReplacePc = true },
+                )
+            }
         }
         Spacer(Modifier.height(24.dp))
         TextButton(onClick = { confirmUnpair = true }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
@@ -225,6 +286,29 @@ fun HomeScreen() {
                 }) { Text("Allow", fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Cancel") } },
+        )
+    }
+    if (confirmReplacePc) {
+        AlertDialog(
+            onDismissRequest = { confirmReplacePc = false },
+            containerColor = Color.White,
+            title = { Text("Replace $childName's PC?", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Text(
+                    "For the next 10 minutes, a newly set-up PC can connect to the hub as " +
+                        "$childName's PC. It takes over from the old one."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReplacePc = false
+                    scope.launch {
+                        info = runCatching { Hub.replacePc() }
+                            .fold({ "Ready: connect the new PC within 10 minutes." }, { "Couldn't reach the hub." })
+                    }
+                }) { Text("Allow", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { confirmReplacePc = false }) { Text("Cancel") } },
         )
     }
     if (confirmUnpair) {
@@ -305,6 +389,30 @@ private fun BatteryLine(battery: Battery) {
 }
 
 private data class Quad(val bg: Color, val dot: Color, val title: String, val text: String)
+
+private val PcBlue = Color(0xFF2563EB)
+
+/** The PC row's line, like the phone's Apps row: how many are on, or the time left of the one ending first. */
+private fun pcAppsSummary(pc: PcState): String {
+    val on = pc.apps.count { it.allowed && it.installed }
+    val installed = pc.apps.count { it.installed }
+    val timed = pc.apps.filter { it.allowed && it.endsAt != null }.minByOrNull { it.endsAt!! }
+    return when {
+        installed == 0 -> "None on the PC yet"
+        on == 0 -> "None switched on, of $installed"
+        timed != null -> "$on switched on · ${timed.label}: ${minutesLeft(timed.endsAt!!)} min left"
+        else -> "$on switched on, of $installed"
+    }
+}
+
+/**
+ * A line under the PC row when the PC hasn't been in touch for over 2 minutes (it checks in all
+ * the time while it is on at home), or null while it is.
+ */
+private fun pcAway(pc: PcState): String? {
+    val seen = pc.lastSeenAgoMs ?: return "PC not heard from yet"
+    return if (seen < 2 * 60_000) null else "PC off or asleep · seen ${ago(seen)}"
+}
 
 /** 10203 → "1.2.3" */
 fun versionName(code: Long): String = "${code / 10000}.${code / 100 % 100}.${code % 100}"

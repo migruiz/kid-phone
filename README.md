@@ -100,14 +100,20 @@ An Android app that turns a phone into a child's phone.
   up at once, whichever app started it.
 - **Updates itself.** Both apps install new versions from this repository's GitHub releases. Kid
   Phone does it silently, only while the screen is off and no call is going on.
+- **His Windows PC too.** Alejandro has his own locked-down account on the family laptop, where only
+  a few simple Windows tools open by themselves. Kid Phone Parent shows **Alejandro's PC** with its
+  own apps (for now Roblox), switched on the same way: for 15 min to 2 hours or with no limit. He
+  sees a full-screen home screen like his phone's, the same "10 minutes left", "5 minutes left" and
+  30-second countdown over the game, and then it closes. See `pc/README.md`.
 
-## The three parts
+## The four parts
 
 | Part | Where it runs | Folder |
 |------|---------------|--------|
 | Kid Phone | the child's phone | `app/` |
 | Kid Phone Parent | each parent's phone | `parent/` |
 | Home hub | the home Raspberry Pi, as a Portainer stack | `hub/` (see `hub/README.md` and `hub/API.md`) |
+| KidLock | the child's account on the family's Windows laptop | `pc/` (see `pc/README.md`) |
 
 `shared/` holds what both apps use: the look, self-updating and the hub connection helpers.
 

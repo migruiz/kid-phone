@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,15 +47,27 @@ import ovh.tenjo.kidphone.ui.Group
 import ovh.tenjo.kidphone.ui.Hairline
 import ovh.tenjo.kidphone.ui.Ink
 import ovh.tenjo.kidphone.ui.Muted
+import ovh.tenjo.kidphone.ui.appWarning
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * The apps on the child's phone, each with a switch and a timer button. [onChange] gets the app,
- * on or off, and the minutes it stays on (null: no time limit).
+ * The apps on the child's phone (or PC), each with a switch and a timer button. [onChange] gets the
+ * app, on or off, and the minutes it stays on (null: no time limit). [iconUrl] is where the hub
+ * keeps an app's icon (the PC's apps have their own), [placeholder] stands in for an app without
+ * one, [emptyText] shows while there are none, [warningOf] flags apps worth a second look and
+ * [goneText] marks an app that was removed but is still switched on.
  */
 @Composable
-fun AppsGroup(apps: List<KidApp>, onChange: (KidApp, Boolean, Int?) -> Unit) {
+fun AppsGroup(
+    apps: List<KidApp>,
+    iconUrl: (String) -> String = Hub::iconUrl,
+    placeholder: ImageVector = Icons.Rounded.Android,
+    emptyText: String = "No apps yet. They appear here once the child's phone has connected to the hub at home.",
+    warningOf: (String) -> String? = ::appWarning,
+    goneText: String = "No longer on the phone",
+    onChange: (KidApp, Boolean, Int?) -> Unit,
+) {
     // Apps no longer on the phone only matter if they are still switched on.
     val shown = apps.filter { it.installed || it.allowed }
     var timing by remember { mutableStateOf<KidApp?>(null) }
@@ -69,46 +82,48 @@ fun AppsGroup(apps: List<KidApp>, onChange: (KidApp, Boolean, Int?) -> Unit) {
     }
     Group {
         if (shown.isEmpty()) {
-            Text(
-                "No apps yet. They appear here once the child's phone has connected to the hub at home.",
-                color = Muted, modifier = Modifier.padding(16.dp),
-            )
+            Text(emptyText, color = Muted, modifier = Modifier.padding(16.dp))
         }
         shown.forEachIndexed { i, app ->
             if (i > 0) HorizontalDivider(Modifier.padding(start = 76.dp), color = Hairline)
             AppSwitchRow(
                 packageName = app.packageName, label = app.label, installed = app.installed, allowed = app.allowed,
                 endsAt = app.endsAt, onTime = { timing = app },
-                icon = { AppIcon(app) }, onToggle = { onChange(app, it, null) },
+                warning = warningOf(app.packageName), goneText = goneText,
+                icon = { AppIcon(app, iconUrl(app.packageName), placeholder) }, onToggle = { onChange(app, it, null) },
             )
         }
     }
 }
 
-/** The app's icon, fetched from the hub (it needs this phone's pairing token) and kept in memory. */
+/**
+ * The app's icon, fetched from the hub at [url] (it needs this phone's pairing token) and kept in
+ * memory by its address, so a phone app and a PC app with the same name never swap icons.
+ */
 @Composable
-private fun AppIcon(app: KidApp) {
-    var bitmap by remember(app.packageName) { mutableStateOf(IconCache.get(app.packageName)) }
+private fun AppIcon(app: KidApp, url: String, placeholder: ImageVector) {
+    var bitmap by remember(url) { mutableStateOf(IconCache.get(url)) }
     if (bitmap == null && app.hasIcon) {
-        LaunchedEffect(app.packageName) { bitmap = IconCache.load(app.packageName) }
+        LaunchedEffect(url) { bitmap = IconCache.load(url) }
     }
     val b = bitmap
     if (b != null) {
         Image(b, contentDescription = null, modifier = Modifier.size(42.dp))
     } else {
-        Icon(Icons.Rounded.Android, contentDescription = null, tint = Muted)
+        Icon(placeholder, contentDescription = null, tint = Muted)
     }
 }
 
+/** Icons by their address on the hub. */
 private object IconCache {
     private val icons = HashMap<String, ImageBitmap>()
 
-    fun get(packageName: String): ImageBitmap? = synchronized(icons) { icons[packageName] }
+    fun get(url: String): ImageBitmap? = synchronized(icons) { icons[url] }
 
-    suspend fun load(packageName: String): ImageBitmap? = withContext(Dispatchers.IO) {
-        get(packageName)?.let { return@withContext it }
+    suspend fun load(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
+        get(url)?.let { return@withContext it }
         runCatching {
-            val conn = URL(Hub.iconUrl(packageName)).openConnection() as HttpURLConnection
+            val conn = URL(url).openConnection() as HttpURLConnection
             try {
                 conn.connectTimeout = 8_000
                 conn.readTimeout = 10_000
@@ -119,6 +134,6 @@ private object IconCache {
             } finally {
                 conn.disconnect()
             }
-        }.getOrNull()?.also { synchronized(icons) { icons[packageName] = it } }
+        }.getOrNull()?.also { synchronized(icons) { icons[url] = it } }
     }
 }

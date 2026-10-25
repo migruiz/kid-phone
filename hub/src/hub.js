@@ -1,5 +1,5 @@
-// What the hub knows and does: the child's phone, parent phones, apps, call requests, the kid state
-// version (with long-poll waiters), timers, and FCM alerts. The route files translate HTTP to these calls.
+// What the hub knows and does: the child's phone and PC, parent phones, apps, call requests, the kid
+// state version (with long-poll waiters), timers, and FCM alerts. The route files translate HTTP to these calls.
 
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { HttpError } from './http.js';
@@ -74,22 +74,29 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
 
   // ---------- the kid state answer and its version ----------
 
-  function allowedPackages() {
-    return Object.entries(state.apps)
+  // The child's phone and his PC each have their own apps, kept the same way:
+  // id -> { label, allowed, installed, icon, allowedUntil, minutes }. On the phone the id is the
+  // Android package; on the PC it is a name the PC chose (such as "roblox").
+  const appsOf = (device) => (device === 'pc' ? state.pcApps : state.apps);
+  // How the logs name an app: the phone's as before, the PC's with "PC app" in front.
+  const named = (device, id) => (device === 'pc' ? `PC app ${id}` : id);
+
+  function allowedIds(device = 'phone') {
+    return Object.entries(appsOf(device))
       .filter(([, app]) => app.allowed)
-      .map(([pkg]) => pkg)
+      .map(([id]) => id)
       .sort();
   }
 
-  /** Apps switched on for a while (allowedUntil set), as [package, app], by package. */
-  function timedApps() {
-    return Object.entries(state.apps)
+  /** Apps switched on for a while (allowedUntil set), as [id, app], by id. */
+  function timedApps(device = 'phone') {
+    return Object.entries(appsOf(device))
       .filter(([, app]) => app.allowed && app.allowedUntil)
       .sort(([a], [b]) => a.localeCompare(b));
   }
 
-  function appTimes(now) {
-    return timedApps().map(([pkg, app]) => ({ package: pkg, remainingSeconds: secondsUntil(app.allowedUntil, now), minutes: app.minutes }));
+  function appTimes(device, now, key) {
+    return timedApps(device).map(([id, app]) => ({ [key]: id, remainingSeconds: secondsUntil(app.allowedUntil, now), minutes: app.minutes }));
   }
 
   function kidRequests(now) {
@@ -107,12 +114,16 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     return out;
   }
 
-  // Everything in the kid answer except the ticking remainingSeconds. When it changes, the version goes up.
+  // Everything in the phone's and the PC's answers except the ticking remainingSeconds. When it
+  // changes, the version goes up. Both share one version: a change for one wakes the other's
+  // long-poll too, which then simply gets the same answer again.
   function fingerprint(now) {
     return JSON.stringify([
-      allowedPackages(),
-      timedApps().map(([pkg, app]) => [pkg, app.allowedUntil, app.minutes]),
+      allowedIds('phone'),
+      timedApps('phone').map(([id, app]) => [id, app.allowedUntil, app.minutes]),
       kidRequests(now).map((r) => [r.id, r.status, r.minutes, r.approvedUntil]),
+      allowedIds('pc'),
+      timedApps('pc').map(([id, app]) => [id, app.allowedUntil, app.minutes]),
     ]);
   }
 
@@ -140,11 +151,13 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
         notifyParents(closedMessage(r));
       }
     }
-    for (const [pkg, app] of timedApps()) {
-      if (app.allowedUntil <= now) {
-        switchApp(app, false, null, now);
-        changed = true;
-        log(`${pkg} switched off: its time is up`);
+    for (const device of ['phone', 'pc']) {
+      for (const [id, app] of timedApps(device)) {
+        if (app.allowedUntil <= now) {
+          switchApp(app, false, null, now);
+          changed = true;
+          log(`${named(device, id)} switched off: its time is up`);
+        }
       }
     }
     return changed;
@@ -176,7 +189,9 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
         if (t > now) next = Math.min(next, t);
       }
     }
-    for (const [, app] of timedApps()) next = Math.min(next, app.allowedUntil);
+    for (const device of ['phone', 'pc']) {
+      for (const [, app] of timedApps(device)) next = Math.min(next, app.allowedUntil);
+    }
     if (next !== Infinity) {
       timer = clock.setTimer(() => {
         timer = null;
@@ -240,12 +255,19 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
 
   // ---------- auth ----------
 
+  /** The kid port: the child's phone ({kind:'kid'}) or his PC ({kind:'pc'}), each with its own token. */
   function authKid(token, appVersion) {
-    if (!token || !state.kid.tokenHash || sha256(token) !== state.kid.tokenHash) return null;
-    state.kid.lastSeen = clock.now();
-    if (appVersion !== null) state.kid.appVersion = appVersion;
-    store.saveSoon();
-    return { kind: 'kid' };
+    if (!token) return null;
+    const hash = sha256(token);
+    for (const [kind, device] of [['kid', state.kid], ['pc', state.pc]]) {
+      if (device.tokenHash && hash === device.tokenHash) {
+        device.lastSeen = clock.now();
+        if (appVersion !== null) device.appVersion = appVersion;
+        store.saveSoon();
+        return { kind };
+      }
+    }
+    return null;
   }
 
   function authParent(token, appVersion) {
@@ -292,17 +314,21 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     return { code, expiresInSeconds: LIMITS.pairingCodeMs / 1000 };
   }
 
-  /** apps: [{ package, label, iconPng? }] already checked by the route. */
-  function putApps({ childName, apps }) {
+  /**
+   * A device's full list of apps: [{ id, label, iconPng? }] already checked by the route. Apps not
+   * listed are kept as installed:false, with their switch. New apps start switched off.
+   */
+  function updateAppList(device, items) {
+    const apps = appsOf(device);
     const listed = new Set();
     let added = 0;
     let iconsSaved = 0;
     let badIcons = 0;
-    for (const item of apps) {
-      listed.add(item.package);
-      let app = Object.hasOwn(state.apps, item.package) ? state.apps[item.package] : null;
+    for (const item of items) {
+      listed.add(item.id);
+      let app = Object.hasOwn(apps, item.id) ? apps[item.id] : null;
       if (!app) {
-        app = state.apps[item.package] = { label: item.label, allowed: false, installed: true, icon: null };
+        app = apps[item.id] = { label: item.label, allowed: false, installed: true, icon: null };
         added++;
       }
       app.label = item.label;
@@ -314,7 +340,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
         } else {
           const hash = sha256(png).slice(0, 16);
           if (hash !== app.icon) {
-            store.writeIcon(item.package, png);
+            store.writeIcon(item.id, png, device);
             app.icon = hash;
             iconsSaved++;
           }
@@ -322,17 +348,64 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
       }
     }
     let gone = 0;
-    for (const [pkg, app] of Object.entries(state.apps)) {
-      if (!listed.has(pkg) && app.installed) {
+    for (const [id, app] of Object.entries(apps)) {
+      if (!listed.has(id) && app.installed) {
         app.installed = false;
         gone++;
       }
     }
+    return `${listed.size} installed, ${added} new, ${gone} gone, ${iconsSaved} icons saved` +
+      (badIcons ? `, ${badIcons} icons ignored (not a PNG up to ${MAX_ICON_SIDE}x${MAX_ICON_SIDE})` : '');
+  }
+
+  /** The phone's apps: [{ package, label, iconPng? }] already checked by the route. */
+  function putApps({ childName, apps }) {
+    const summary = updateAppList('phone', apps.map((a) => ({ id: a.package, label: a.label, iconPng: a.iconPng })));
     if (childName) state.kid.name = childName;
     commit();
-    log(`apps updated: ${listed.size} installed, ${added} new, ${gone} gone, ${iconsSaved} icons saved` +
-      (badIcons ? `, ${badIcons} icons ignored (not a PNG up to ${MAX_ICON_SIDE}x${MAX_ICON_SIDE})` : ''));
+    log(`apps updated: ${summary}`);
     return { ok: true };
+  }
+
+  // ---------- the child's PC ----------
+
+  /**
+   * The PC joins like the phone: allowed when no PC is registered yet, again with its current
+   * token, or once within 10 minutes after a parent allowed a replacement. Each time a new token.
+   */
+  function registerPc({ token, appVersion }) {
+    const now = clock.now();
+    const pc = state.pc;
+    let how;
+    if (!pc.tokenHash) how = 'first time';
+    else if (typeof token === 'string' && sha256(token) === pc.tokenHash) how = 'again';
+    else if (now < state.replacePcUntil) how = 'as a replacement';
+    else throw new HttpError(403, 'already_registered', 'This hub already has a PC');
+
+    if (how === 'as a replacement') state.replacePcUntil = 0;
+    const newPcToken = newToken();
+    pc.tokenHash = sha256(newPcToken);
+    pc.registeredAt = now;
+    pc.lastSeen = now;
+    if (appVersion !== null) pc.appVersion = appVersion;
+    commit();
+    log(`PC registered ${how}`);
+    return { token: newPcToken };
+  }
+
+  /** The PC's apps the parents can switch on: [{ id, label, iconPng? }] already checked by the route. */
+  function putPcApps({ apps }) {
+    const summary = updateAppList('pc', apps);
+    commit();
+    log(`PC apps updated: ${summary}`);
+    return { ok: true };
+  }
+
+  /** What the PC needs: the apps switched on, and the time left of those on for a while. */
+  function pcState() {
+    refresh();
+    const now = clock.now();
+    return { version: state.version, allowed: allowedIds('pc'), appTimes: appTimes('pc', now, 'id') };
   }
 
   function currentVersion() {
@@ -345,8 +418,8 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     const now = clock.now();
     return {
       version: state.version,
-      allowedPackages: allowedPackages(),
-      appTimes: appTimes(now),
+      allowedPackages: allowedIds('phone'),
+      appTimes: appTimes('phone', now, 'package'),
       requests: kidRequests(now).map((r) => kidRequest(r, now)),
     };
   }
@@ -510,12 +583,11 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     return out;
   }
 
-  function parentState(parent) {
-    refresh();
-    const now = clock.now();
-    const apps = Object.entries(state.apps)
-      .map(([pkg, a]) => {
-        const out = { package: pkg, label: a.label, allowed: a.allowed, installed: a.installed, hasIcon: Boolean(a.icon) };
+  /** A device's apps for the parents, installed first, then by label. key: "package" or "id". */
+  function parentApps(device, now, key) {
+    return Object.entries(appsOf(device))
+      .map(([id, a]) => {
+        const out = { [key]: id, label: a.label, allowed: a.allowed, installed: a.installed, hasIcon: Boolean(a.icon) };
         if (a.allowed && a.allowedUntil) {
           out.minutes = a.minutes;
           out.remainingSeconds = secondsUntil(a.allowedUntil, now);
@@ -524,7 +596,13 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
       })
       .sort((x, y) => Number(y.installed) - Number(x.installed) ||
         x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }) ||
-        x.package.localeCompare(y.package));
+        x[key].localeCompare(y[key]));
+  }
+
+  function parentState(parent) {
+    refresh();
+    const now = clock.now();
+    const apps = parentApps('phone', now, 'package');
     const newestFirst = [...state.requests].sort((a, b) => b.createdAt - a.createdAt);
     const shown = new Set([
       ...newestFirst.filter((r) => r.status === 'pending'),
@@ -539,30 +617,38 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
         battery: state.battery && { percent: state.battery.percent, charging: state.battery.charging, at: state.battery.at },
       },
       apps,
+      pc: {
+        paired: state.pc.tokenHash !== null,
+        lastSeen: state.pc.lastSeen,
+        appVersion: state.pc.appVersion,
+        apps: parentApps('pc', now, 'id'),
+      },
       requests: newestFirst.filter((r) => shown.has(r)).map((r) => parentRequest(r, now)),
       parents: state.parents.map((p) => ({ name: p.name, me: p === parent })),
       time: now,
     };
   }
 
-  const readIcon = (pkg) => store.readIcon(pkg);
+  const readIcon = (id, device = 'phone') => store.readIcon(id, device);
 
   /**
-   * Switches an app on or off. On with `minutes` means for that long, counted from now (again
-   * for an app already on: an hour can become ten minutes from now); without, no time limit.
+   * Switches an app on the phone (or the PC) on or off. On with `minutes` means for that long,
+   * counted from now (again for an app already on: an hour can become ten minutes from now);
+   * without, no time limit.
    */
-  function setAllowed(parent, pkg, allowed, minutes = null) {
+  function setAllowed(parent, id, allowed, minutes = null, device = 'phone') {
     if (minutes !== null && !(Number.isInteger(minutes) && minutes >= 1 && minutes <= MAX_APP_MINUTES)) {
       throw new HttpError(400, 'bad_minutes', `minutes must be a whole number from 1 to ${MAX_APP_MINUTES}`);
     }
     refresh();
-    const app = Object.hasOwn(state.apps, pkg) ? state.apps[pkg] : null;
+    const apps = appsOf(device);
+    const app = Object.hasOwn(apps, id) ? apps[id] : null;
     if (!app) throw new HttpError(404, 'not_found', 'No such app');
     const timed = allowed ? minutes : null;
     if (app.allowed !== allowed || timed !== null || (app.allowedUntil ?? null) !== null) {
       switchApp(app, allowed, timed, clock.now());
       commit();
-      log(`${pkg} ${allowed ? (timed ? `allowed for ${timed} minutes` : 'allowed') : 'blocked'} by ${parent.name}`);
+      log(`${named(device, id)} ${allowed ? (timed ? `allowed for ${timed} minutes` : 'allowed') : 'blocked'} by ${parent.name}`);
     }
     return { ok: true };
   }
@@ -625,6 +711,13 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     return { ok: true };
   }
 
+  function replacePc(parent) {
+    state.replacePcUntil = clock.now() + LIMITS.replaceKidMs;
+    store.save();
+    log(`${parent.name} allowed a new PC to register in the next 10 minutes`);
+    return { ok: true };
+  }
+
   function unpair(parent) {
     state.parents = state.parents.filter((p) => p !== parent);
     indexParents();
@@ -666,6 +759,9 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     createRequest,
     cancelRequest,
     reportBattery,
+    registerPc,
+    putPcApps,
+    pcState,
     pair,
     setFcmToken,
     parentState,
@@ -674,6 +770,7 @@ export function createHub({ store, clock, fcm = null, log = () => {} }) {
     answer,
     changeWindow,
     replaceKid,
+    replacePc,
     unpair,
     start,
     close,

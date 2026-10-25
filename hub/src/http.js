@@ -116,7 +116,9 @@ function appVersionOf(req) {
 }
 
 /**
- * routes: [{ method, path: '/kid/requests/:id/cancel', auth?: false, limit?: bytes, handle(ctx) }]
+ * routes: [{ method, path: '/kid/requests/:id/cancel', auth?: false, kind?: 'kid'|'pc', limit?: bytes, handle(ctx) }]
+ * A route with a kind only takes a caller of that kind (the phone's token can't act as the PC, and
+ * the other way round).
  * handle returns an object to send as 200 JSON, or undefined when it answered by itself.
  * authenticate(token, appVersion) returns who is calling, or null.
  * guard(req) returns a reason to refuse the request (403), or null.
@@ -151,7 +153,7 @@ export function createHandler({ routes, authenticate, guard, log }) {
       const ctx = { req, res, params, url, appVersion: appVersionOf(req) };
       if (route.auth !== false) {
         ctx.who = authenticate(bearerToken(req), ctx.appVersion);
-        if (!ctx.who) throw new HttpError(401, 'unauthorized', 'Missing or wrong token');
+        if (!ctx.who || (route.kind && ctx.who.kind !== route.kind)) throw new HttpError(401, 'unauthorized', 'Missing or wrong token');
       }
       ctx.body = req.method === 'POST' || req.method === 'PUT' ? await readJson(req, route.limit ?? DEFAULT_BODY_LIMIT) : {};
 

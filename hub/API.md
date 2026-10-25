@@ -1,9 +1,10 @@
 # Kid Phone hub — API
 
 The hub is a small always-on service on the home Raspberry Pi. It sits between Kid Phone (the
-child's phone) and Kid Phone Parent (the parents' phones):
+child's phone), the child's Windows PC (`pc/`), and Kid Phone Parent (the parents' phones):
 
 - it keeps the list of apps installed on the child's phone and which ones the parents allow;
+- it does the same for the apps on the child's PC (see "PC routes");
 - it keeps "ask first" call requests and the parents' answers;
 - it keeps the child's battery level and decides when it is low enough to tell the parents;
 - it alerts the parents' phones through Firebase Cloud Messaging (FCM).
@@ -12,7 +13,7 @@ child's phone) and Kid Phone Parent (the parents' phones):
 
 | Port | Who | How they reach it |
 |------|-----|-------------------|
-| 8774 | the child's phone (`/kid/...`) | home Wi-Fi only: `http://192.168.0.11:8774` |
+| 8774 | the child's phone (`/kid/...`) and PC (`/pc/...`) | home network only: `http://192.168.0.11:8774` |
 | 8775 | the parents' phones (`/parent/...`) | anywhere: `https://kidphone.tenjo.ovh` (Cloudflare tunnel → Pi:8775) |
 
 Each port serves only its own routes (anything else is 404). Kid routes also refuse any request
@@ -154,6 +155,44 @@ alerts every parent with a `battery` message (see FCM below):
 
 What has alerted is saved before the answer goes out, so a hub restart never repeats an alert.
 
+## PC routes (port 8774)
+
+The child's Windows PC (see `pc/README.md`) joins the hub the same way as the phone, with its own
+token. The phone's token works only on `/kid/...` routes and the PC's only on `/pc/...` routes;
+the other one gets `401`. The PC's apps are kept apart from the phone's: an app on the PC has an
+`id` the PC chooses (lower case letters, digits, dots and dashes, at most 64, starting with a
+letter or digit, such as `roblox`), and its icon is `/data/icons-pc/<id>.png`.
+
+### `POST /pc/register`
+Body: `{"token":"<current PC token, optional>"}` → `200 {"token":"..."}` ·
+`403 {"error":"already_registered"}`
+Allowed when no PC is registered yet, or with the current PC token, or once within 10 minutes after
+a parent called `POST /parent/replace-pc`. Every registration returns a new token and the old one
+stops working. Apps and switches are kept.
+
+### `PUT /pc/apps`
+The apps on the PC that the parents can switch on, sent when the PC's agent starts and whenever
+the list changes:
+```json
+{"apps":[{"id":"roblox","label":"Roblox","iconPng":"<base64 PNG, ≤ 192×192, optional>"}]}
+```
+→ `200 {"ok":true}` · `400 {"error":"bad_id"}` (nothing is saved). Bodies may be at most 2 MB.
+The same rules as `PUT /kid/apps`: apps missing from the list are kept as `installed:false` with
+their switch, new apps start not allowed, a missing or bad icon keeps the earlier one.
+
+### `GET /pc/state?since=<version>&wait=<seconds>`
+```json
+{"version":17,
+ "allowed":["roblox"],
+ "appTimes":[{"id":"roblox","remainingSeconds":3540,"minutes":60}]}
+```
+- `allowed`: every PC app the parents allow. `appTimes`: those on for a while, with the seconds
+  left and the minutes given (on with no time limit: not listed). The PC counts down by itself,
+  warns the child and closes the app at the end; the hub switches it off at the same moment.
+- `version` is the same counter as `/kid/state`'s: a change for the phone also wakes a waiting PC
+  (which then gets the same answer again), and the other way round. Long-poll as in `/kid/state`.
+- Updates the PC's `lastSeen` (as does every PC request).
+
 ## Parent routes (port 8775)
 
 ### `POST /parent/pair`
@@ -173,13 +212,17 @@ Body: `{"fcmToken":"..."}` → `200 {"ok":true}`. Called when FCM rotates the to
  "apps":[{"package":"com.duolingo","label":"Duolingo","allowed":true,"installed":true,"hasIcon":true},
          {"package":"com.chess","label":"Chess","allowed":true,"installed":true,"hasIcon":true,
           "minutes":60,"remainingSeconds":3540}],
+ "pc":{"paired":true,"lastSeen":<epoch ms or null>,"appVersion":10900,
+       "apps":[{"id":"roblox","label":"Roblox","allowed":true,"installed":true,"hasIcon":true,
+                "minutes":60,"remainingSeconds":3540}]},
  "requests":[{"id":"r_ab12","contactName":"Pablo","number":"0871234567","status":"approved",
               "createdAt":<ms>,"decidedBy":"Miguel","minutes":30,"remainingSeconds":1740}],
  "parents":[{"name":"Miguel","me":true},{"name":"Sonia","me":false}],
  "time":<epoch ms>}
 ```
 Apps sorted by label (installed first). An app switched on for a while also has `minutes` (as
-given) and `remainingSeconds`. `requests`: pending ones and the last 20 others, newest first.
+given) and `remainingSeconds`. `pc`: the child's PC, the same way (its apps by `id`);
+`pc.paired` is false and `pc.apps` empty until a PC has registered. `requests`: pending ones and the last 20 others, newest first.
 In a request, `decidedBy` and `minutes` are `null` until a parent answers (`minutes` `0` means
 rejected). `remainingSeconds` is only on `approved` (`0` once the time is up). `child.paired` is
 true once a child phone has registered. `child.battery` is the last battery report (`at` is when it
@@ -197,6 +240,14 @@ Giving a time to an app already on restarts it from now (an hour can become ten 
 `{"allowed":true}` takes a time away. When the time is up the hub switches the app off by itself
 (saved with absolute times, so this also happens on time after a restart). Bumps the kid state
 version (wakes its long-poll) whenever the switch or its time changes.
+
+### `GET /parent/pc/apps/{id}/icon` · `PUT /parent/pc/apps/{id}`
+The same as the two routes above, for an app on the PC. Logged as "PC app roblox allowed for 60
+minutes by Miguel".
+
+### `POST /parent/replace-pc`
+→ `200 {"ok":true}` — for 10 minutes a new PC may register without the old token (a reinstalled
+PC, or one whose agent lost its token).
 
 ### `POST /parent/requests/{id}/answer`
 Body: `{"minutes":30}` — `0` rejects; otherwise one of `10`, `30`, `60` (anything else:
@@ -239,7 +290,7 @@ from that parent.
 ## Storage
 
 `/data/state.json` (written atomically: temp file + fsync + rename), icons in
-`/data/icons/<package>.png`, the Firebase service-account key at `/data/secrets/firebase.json`
+`/data/icons/<package>.png` (the PC's in `/data/icons-pc/<id>.png`), the Firebase service-account key at `/data/secrets/firebase.json`
 (never in git or in the image). Without that key the hub still works but logs that alerts are
 switched off. The hub keeps the last 50 finished requests. Last-seen times and app versions are
 saved within a minute (and on shutdown) to spare the SD card; everything else is saved before the

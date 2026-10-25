@@ -44,8 +44,11 @@ import java.util.Date
  * Apps worth a second look before switching them on. The phone can't see what happens inside an
  * app, so an app with calls or chat lets the child talk to anyone, "ask first" or not.
  */
+private const val TALK = "Can message or call people"
+private const val WEB = "Opens any website"
+
 private val Warnings: Map<String, String> = buildMap {
-    val talk = "Can message or call people"
+    val talk = TALK
     listOf(
         "com.whatsapp", "org.telegram.messenger", "com.facebook.orca", "com.facebook.katana",
         "com.instagram.android", "com.snapchat.android", "com.discord", "com.google.android.apps.messaging",
@@ -53,7 +56,7 @@ private val Warnings: Map<String, String> = buildMap {
         "com.google.android.apps.tachyon", "com.skype.raider", "com.zhiliaoapp.musically",
         "ovh.tenjo.agentphone", "com.google.android.apps.dynamite",
     ).forEach { put(it, talk) }
-    val web = "Opens any website"
+    val web = WEB
     listOf(
         "com.android.chrome", "org.mozilla.firefox", "com.google.android.googlequicksearchbox",
         "com.sec.android.app.sbrowser", "com.opera.browser", "com.microsoft.emmx", "com.brave.browser",
@@ -63,6 +66,14 @@ private val Warnings: Map<String, String> = buildMap {
 }
 
 fun appWarning(packageName: String): String? = Warnings[packageName]
+
+/** The same for apps on the child's PC, by the PC's own name for them (see pc/agent/apps.json). */
+private val PcWarnings: Map<String, String> = mapOf(
+    "roblox" to TALK, "discord" to TALK, "minecraft" to TALK,
+    "chrome" to WEB, "msedge" to WEB, "firefox" to WEB,
+)
+
+fun pcAppWarning(id: String): String? = PcWarnings[id]
 
 /** How long an app can be switched on for, counted from when a parent chooses it. */
 val AppTimeChoices = listOf(15 to "15 min", 30 to "30 min", 60 to "1 hour", 120 to "2 hours")
@@ -85,7 +96,7 @@ fun rememberClock(): Long {
 
 /**
  * One app with its on/off switch, as both apps list them: icon, name, and underneath the time
- * left when it is on for a while ([endsAt]), "No longer on the phone", or a warning.
+ * left when it is on for a while ([endsAt]), [goneText] when it was removed, or a [warning].
  *
  * With [onTime], switching it on first asks for how long ([onTime] opens [AppTimeDialog]) and
  * tapping the row changes the time; switching it off is immediate. Without, the switch alone.
@@ -99,11 +110,12 @@ fun AppSwitchRow(
     enabled: Boolean = true,
     endsAt: Long? = null,
     onTime: (() -> Unit)? = null,
+    warning: String? = appWarning(packageName),
+    goneText: String = "No longer on the phone",
     icon: @Composable () -> Unit,
     onToggle: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    val warning = appWarning(packageName)
     val now = rememberClock()
     Row(
         Modifier
@@ -132,7 +144,7 @@ fun AppSwitchRow(
                 }
             }
             when {
-                !installed -> Text("No longer on the phone", fontSize = 13.sp, color = Muted)
+                !installed -> Text(goneText, fontSize = 13.sp, color = Muted)
                 warning != null -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = Color(0xFFB45309), modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))

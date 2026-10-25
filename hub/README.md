@@ -1,13 +1,13 @@
 # Kid Phone hub
 
 A small Node.js service that runs in Docker on the home Raspberry Pi. It sits between Kid Phone
-(the child's phone) and Kid Phone Parent (the parents' phones). It keeps the child's app list and
-which apps are allowed, holds "may I call this number?" requests and the parents' answers, keeps
+(the child's phone), the child's Windows PC (`pc/`) and Kid Phone Parent (the parents' phones). It
+keeps the child's app lists (phone and PC) and which apps are allowed, holds "may I call this number?" requests and the parents' answers, keeps
 the child's battery level, and alerts the parents' phones through Firebase Cloud Messaging (call
 requests, and the battery dropping below 25%, 15% and 10%). The full contract is in
 [API.md](API.md).
 
-- Port **8774** is for the child's phone and only answers on the home network.
+- Port **8774** is for the child's phone and PC, and only answers on the home network.
 - Port **8775** is for the parents and is reachable from the internet through the Cloudflare tunnel
   at `https://kidphone.tenjo.ovh`.
 
@@ -37,7 +37,7 @@ In PowerShell: `$env:DATA_DIR='./tmp'; node src/server.js`. Then try
 
 | Variable | Default | What it is |
 |----------|---------|------------|
-| `DATA_DIR` | `/data` | Where `state.json`, `icons/` and `secrets/` live |
+| `DATA_DIR` | `/data` | Where `state.json`, `icons/`, `icons-pc/` and `secrets/` live |
 | `KID_PORT` | `8774` | Port for the child's phone |
 | `PARENT_PORT` | `8775` | Port for the parents' phones |
 | `FIREBASE_KEY_FILE` | `$DATA_DIR/secrets/firebase.json` | Firebase service-account key. If it is missing, the hub logs that alerts are off and carries on |
@@ -84,5 +84,5 @@ In PowerShell: `$env:DATA_DIR='./tmp'; node src/server.js`. Then try
    `http://192.168.0.11:8775`. Never add a hostname for port 8774. Don't forward either port on the
    router.
 
-Everything the hub knows is in `/home/pi/kidphone/state.json` plus `icons/`. Back that folder up if
+Everything the hub knows is in `/home/pi/kidphone/state.json` plus `icons/` and `icons-pc/`. Back that folder up if
 you like. Deleting it means pairing everything again.

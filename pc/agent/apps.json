@@ -1,0 +1,21 @@
+{
+  "user": "Alejandro",
+  "hub": "http://192.168.0.11:8774",
+  "tools": [
+    { "label": "Calculator",    "package": "Microsoft.WindowsCalculator", "aumid": "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App" },
+    { "label": "Notepad",       "package": "Microsoft.WindowsNotepad",    "aumid": "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App" },
+    { "label": "Paint",         "package": "Microsoft.Paint",             "aumid": "Microsoft.Paint_8wekyb3d8bbwe!App" },
+    { "label": "Photos",        "package": "Microsoft.Windows.Photos",    "aumid": "Microsoft.Windows.Photos_8wekyb3d8bbwe!App" },
+    { "label": "Camera",        "package": "Microsoft.WindowsCamera",     "aumid": "Microsoft.WindowsCamera_8wekyb3d8bbwe!App" },
+    { "label": "Snipping Tool", "package": "Microsoft.ScreenSketch",      "aumid": "Microsoft.ScreenSketch_8wekyb3d8bbwe!App" }
+  ],
+  "apps": [
+    {
+      "id": "roblox",
+      "label": "Roblox",
+      "signer": "O=ROBLOX CORPORATION, L=SAN MATEO, S=CALIFORNIA, C=US",
+      "launch": "%LOCALAPPDATA%\\Roblox\\Versions\\*\\RobloxPlayerBeta.exe",
+      "processes": ["RobloxPlayerBeta", "RobloxPlayerLauncher", "RobloxPlayerInstaller", "RobloxCrashHandler", "RobloxStudioBeta", "RobloxStudioInstaller"]
+    }
+  ]
+}

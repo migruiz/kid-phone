@@ -43,6 +43,12 @@ data class CallRequest(
     val endedBy: String? = null,
 )
 
+/**
+ * The child's Windows PC, once it has joined the hub. Its apps are [KidApp]s too, with the PC's own
+ * name for each app (such as "roblox") in [KidApp.packageName].
+ */
+data class PcState(val paired: Boolean, val lastSeenAgoMs: Long?, val appVersion: Long?, val apps: List<KidApp>)
+
 data class Parent(val name: String, val me: Boolean)
 
 /** The hub's reply to an answer: the request as it now stands, and whether the other parent was first. */
@@ -53,6 +59,8 @@ data class HubState(
     val apps: List<KidApp>,
     val requests: List<CallRequest>,
     val parents: List<Parent>,
+    /** Null from a hub that doesn't know about PCs yet. */
+    val pc: PcState? = null,
 )
 
 /**
@@ -117,6 +125,7 @@ object Hub {
     }
 
     fun iconUrl(packageName: String) = "$BASE/parent/apps/$packageName/icon"
+    fun pcIconUrl(id: String) = "$BASE/parent/pc/apps/$id/icon"
     fun authHeader(): String = "Bearer ${token.orEmpty()}"
 
     /** Switches an app on (for [minutes] from now, or with no time limit when null) or off. */
@@ -124,6 +133,13 @@ object Hub {
         val body = JSONObject().put("allowed", allowed)
         if (allowed && minutes != null) body.put("minutes", minutes)
         call { Http.put("$BASE/parent/apps/$packageName", body, token) }
+    }
+
+    /** Switches an app on the child's PC on (for [minutes] from now, or with no time limit when null) or off. */
+    suspend fun setPcAllowed(id: String, allowed: Boolean, minutes: Int? = null) {
+        val body = JSONObject().put("allowed", allowed)
+        if (allowed && minutes != null) body.put("minutes", minutes)
+        call { Http.put("$BASE/parent/pc/apps/$id", body, token) }
     }
 
     /** Answers an "ask first" request: 0 minutes says no; otherwise 10, 30 or 60. */
@@ -156,6 +172,11 @@ object Hub {
 
     suspend fun replaceKid() {
         call { Http.post("$BASE/parent/replace-kid", token = token) }
+    }
+
+    /** For the next 10 minutes, a newly set-up PC can join the hub as the child's PC. */
+    suspend fun replacePc() {
+        call { Http.post("$BASE/parent/replace-pc", token = token) }
     }
 
     /** Forgets the pairing here, and tells the hub (best effort). */
@@ -199,17 +220,26 @@ object Hub {
         )
         // Times are relative, so this phone's clock and the Pi's don't need to agree.
         val heardAt = System.currentTimeMillis()
-        val apps = json.optJSONArray("apps").objects().map {
-            KidApp(
-                it.getString("package"), it.optString("label"), it.optBoolean("allowed"), it.optBoolean("installed", true),
-                it.optBoolean("hasIcon"),
-                endsAt = if (it.has("remainingSeconds") && !it.isNull("remainingSeconds")) heardAt + it.getLong("remainingSeconds") * 1000 else null,
+        val apps = json.optJSONArray("apps").objects().map { parseApp(it, it.getString("package"), heardAt) }
+        val pc = json.optJSONObject("pc")?.let { p ->
+            PcState(
+                paired = p.optBoolean("paired"),
+                lastSeenAgoMs = if (p.isNull("lastSeen")) null else (now - p.getLong("lastSeen")).coerceAtLeast(0),
+                appVersion = if (p.isNull("appVersion")) null else p.optLong("appVersion"),
+                apps = p.optJSONArray("apps").objects().map { parseApp(it, it.getString("id"), heardAt) },
             )
         }
         val requests = json.optJSONArray("requests").objects().map { parseRequest(it, now) }
         val parents = json.optJSONArray("parents").objects().map { Parent(it.optString("name"), it.optBoolean("me")) }
-        return HubState(child, apps, requests, parents)
+        return HubState(child, apps, requests, parents, pc)
     }
+
+    /** An app on the phone (by package) or on the PC (by id). [heardAt]: when the hub answered, on this phone's clock. */
+    private fun parseApp(it: JSONObject, id: String, heardAt: Long) = KidApp(
+        id, it.optString("label"), it.optBoolean("allowed"), it.optBoolean("installed", true),
+        it.optBoolean("hasIcon"),
+        endsAt = if (it.has("remainingSeconds") && !it.isNull("remainingSeconds")) heardAt + it.getLong("remainingSeconds") * 1000 else null,
+    )
 
     private fun parseRequest(it: JSONObject, now: Long) = CallRequest(
         id = it.getString("id"),
