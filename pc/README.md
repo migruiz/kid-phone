@@ -5,7 +5,7 @@ Windows 11 Pro through Boot Camp; the family's own account is `piscos`). In his 
 open what the parents allow, and the parents switch apps on from **Kid Phone Parent**, for a while
 or with no time limit, the same way as the apps on his phone.
 
-- **Always allowed:** Calculator, Notepad, Paint, Photos, Camera and Snipping Tool, and the parts
+- **Always allowed:** Calculator, Notepad, Paint, Paint 3D, Photos, Camera and Snipping Tool, and the parts
   of Windows itself he needs. Everything else is blocked for his account only: other programs,
   browsers, Store apps, the command prompt, PowerShell, Task Manager, Control Panel, the registry
   editor, installers.
@@ -19,8 +19,11 @@ or with no time limit, the same way as the apps on his phone.
   is blocked); if it ever stops, the agent starts it again within 15 seconds. The time limit doesn't
   depend on it: the agent closes the app on time either way.
 - **His taskbar** shows only the apps he has open, the clock and the volume (and the Start button,
-  which Windows won't let go). No pinned apps, search, Task View, Copilot, chat, Wi-Fi or battery
-  icons, notifications panel, and he can't change the taskbar's settings. **Widgets** (the news and
+  which Windows won't let go). No pinned apps, search, Task View, Copilot, chat, Wi-Fi, battery,
+  Bluetooth or security icons, language indicator, other apps' tray icons (Boot Camp keeps running
+  hidden: it drives the brightness and volume keys), notifications panel, and he can't change the
+  taskbar's settings. **Start** shows only his tools as pinned apps (Windows' "Configure Start
+  pins" setting for his account). His **keyboard** is Irish, the only layout. **Widgets** (the news and
   weather button) are off for the whole laptop, the family account too: Windows only allows that
   laptop-wide, and refuses it from scripts, so the agent sets it through the device-management
   channel at start-up.
