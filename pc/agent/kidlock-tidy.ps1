@@ -114,9 +114,13 @@ try {
                 HideRecommendedSection = 1; DisableNotificationCenter = 1 }
             "$root\Software\Policies\Microsoft\Windows\WindowsCopilot" = @{ TurnOffWindowsCopilot = 1 }
             "$root\Software\Microsoft\Windows\CurrentVersion\Search" = @{ SearchboxTaskbarMode = 0 }
+            # (widgets: TaskbarDa is refused by Windows; the agent switches widgets off laptop-wide)
             "$root\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" = @{
-                ShowTaskViewButton = 0; TaskbarDa = 0; TaskbarMn = 0; ShowCopilotButton = 0; TaskbarSd = 0 }
+                ShowTaskViewButton = 0; TaskbarMn = 0; ShowCopilotButton = 0; TaskbarSd = 0 }
             "$root\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings" = @{ TaskbarEndTask = 0 }
+            "$root\Control Panel\Bluetooth" = @{ 'Notification Area Icon' = 0 }
+            # The language indicator ("ENG"): with the desktop language bar on (below) and hidden (3).
+            "$root\Software\Microsoft\CTF\LangBar" = @{ ShowStatus = 3 }
         }
         foreach ($key in $sets.Keys) {
             if (-not (Test-Path $key)) { New-Item $key -Force | Out-Null }
@@ -129,9 +133,88 @@ try {
         # The clock and volume stay (the parents' choice, 25/10/2026), so the switches that hid them go.
         Remove-ItemProperty "$root\Software\Policies\Microsoft\Windows\Explorer" -Name StartLayoutFile, LockedStartLayout, DisableControlCenter -ErrorAction SilentlyContinue
         Remove-ItemProperty "$root\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name NoTrayItemsDisplay, HideClock, HideSCAVolume -ErrorAction SilentlyContinue
+
+        # "Use the desktop language bar" is one bit of UserPreferencesMask (6th byte, lowest bit),
+        # a value shared with other settings: only that bit changes.
+        $desk = "$root\Control Panel\Desktop"
+        $mask = (Get-ItemProperty $desk -Name UserPreferencesMask -ErrorAction SilentlyContinue).UserPreferencesMask
+        if ($mask -and $mask.Length -ge 6 -and -not ($mask[5] -band 1)) {
+            $mask[5] = $mask[5] -bor 1
+            Set-ItemProperty $desk -Name UserPreferencesMask -Value ([byte[]]$mask) -Type Binary
+            Log "desktop language bar on (so the language indicator can be hidden)"
+        }
+
+        # Keyboard: Irish, and only that one, so there's nothing to switch (the parents' choice,
+        # 25/10/2026). The display language stays as it is. Takes effect at his next sign-in.
+        $irish = '00001809'
+        $up = "$root\Control Panel\International\User Profile"
+        $lang = @((Get-ItemProperty $up -ErrorAction SilentlyContinue).Languages)[0]
+        if ($lang -and (Test-Path "$up\$lang")) {
+            $langKey = Get-Item "$up\$lang"
+            $inputs = @($langKey.Property | Where-Object { $_ -match '^[0-9A-Fa-f]{4}:' })
+            $lcid = if ($inputs) { $inputs[0].Substring(0, 4) } else { '0809' }
+            $want = "${lcid}:$irish"
+            if ($inputs.Count -ne 1 -or $inputs[0] -ne $want) {
+                foreach ($i in $inputs) { Remove-ItemProperty "$up\$lang" -Name $i }
+                New-ItemProperty "$up\$lang" -Name $want -Value 1 -PropertyType DWord -Force | Out-Null
+                Log "keyboard for $lang set to Irish ($want)"
+            }
+        }
+        $pre = "$root\Keyboard Layout\Preload"
+        if (-not (Test-Path $pre)) { New-Item $pre -Force | Out-Null }
+        $current = (Get-ItemProperty $pre).PSObject.Properties | Where-Object Name -match '^\d+$'
+        if (@($current).Count -ne 1 -or $current.Value -ne $irish) {
+            $current | ForEach-Object { Remove-ItemProperty $pre -Name $_.Name }
+            New-ItemProperty $pre -Name '1' -Value $irish -PropertyType String -Force | Out-Null
+        }
+        Remove-Item "$root\Keyboard Layout\Substitutes\*" -ErrorAction SilentlyContinue
+
+        # Tray: every app's icon (Boot Camp, Roblox...) goes into the hidden-icons menu, and that
+        # menu's arrow is hidden below. New icons go there by themselves.
+        Get-ChildItem "$root\Control Panel\NotifyIconSettings" -ErrorAction SilentlyContinue | ForEach-Object {
+            if ((Get-ItemProperty $_.PSPath -Name IsPromoted -ErrorAction SilentlyContinue).IsPromoted -ne 0) {
+                New-ItemProperty $_.PSPath -Name IsPromoted -Value 0 -PropertyType DWord -Force | Out-Null
+            }
+        }
     } finally {
         if (-not $loaded) { [gc]::Collect(); reg.exe unload 'HKU\KidLockTidy' | Out-Null }
     }
+
+    # 4b. The hidden-icons arrow in the tray. This lives in his other registry file (UsrClass.dat),
+    # loaded while he is signed in.
+    $classes = "Registry::HKEY_USERS\${sid}_Classes"
+    $classesLoaded = Test-Path $classes
+    if (-not $classesLoaded) {
+        reg.exe load "HKU\KidLockTidyClasses" "$prof\AppData\Local\Microsoft\Windows\UsrClass.dat" | Out-Null
+        $classes = 'Registry::HKEY_USERS\KidLockTidyClasses'
+    }
+    try {
+        $tn = "$classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\TrayNotify"
+        if (Test-Path $classes) {
+            if (-not (Test-Path $tn)) { New-Item $tn -Force | Out-Null }
+            New-ItemProperty $tn -Name SystemTrayChevronVisibility -Value 0 -PropertyType DWord -Force | Out-Null
+        }
+    } catch { Log "could not hide the hidden-icons arrow: $($_.Exception.Message)" }
+    finally {
+        if (-not $classesLoaded) { [gc]::Collect(); reg.exe unload 'HKU\KidLockTidyClasses' | Out-Null }
+    }
+
+    # 4c. Start's pinned apps: only his tools (Windows' own "Configure Start pins" setting for his
+    # account, written where the device-management channel keeps it).
+    try {
+        $json = @{ pinnedList = @($config.tools | ForEach-Object { @{ packagedAppId = $_.aumid } }) } | ConvertTo-Json -Depth 4 -Compress
+        $provider = 'FE24B94A-1E02-4259-A0C0-EF2E2B7F95D9'
+        $cur = "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\$sid\Start"
+        $pk = "HKLM:\SOFTWARE\Microsoft\PolicyManager\providers\$provider\default\$sid\Start"
+        foreach ($k in $cur, $pk) { if (-not (Test-Path $k)) { New-Item $k -Force | Out-Null } }
+        if ((Get-ItemProperty $cur -Name ConfigureStartPins -ErrorAction SilentlyContinue).ConfigureStartPins -ne $json) {
+            New-ItemProperty $pk -Name ConfigureStartPins -Value $json -PropertyType String -Force | Out-Null
+            New-ItemProperty $cur -Name ConfigureStartPins -Value $json -PropertyType String -Force | Out-Null
+            New-ItemProperty $cur -Name ConfigureStartPins_ProviderSet -Value 1 -PropertyType DWord -Force | Out-Null
+            New-ItemProperty $cur -Name ConfigureStartPins_WinningProvider -Value $provider -PropertyType String -Force | Out-Null
+            Log "Start pins set to his tools"
+        }
+    } catch { Log "could not set Start pins: $($_.Exception.Message)" }
 
     # 5. The old taskbar layout file (pins are off now)
     Remove-Item 'C:\ProgramData\KidLockLayout\taskbar.xml' -ErrorAction SilentlyContinue

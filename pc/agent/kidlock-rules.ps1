@@ -45,6 +45,7 @@ $KidDeniedTools = @(
     '%SYSTEM32%\wslconfig.exe', '%SYSTEM32%\regsvr32.exe', '%SYSTEM32%\msra.exe', '%SYSTEM32%\mstsc.exe',
     '%SYSTEM32%\forfiles.exe', '%SYSTEM32%\pcalua.exe', '%SYSTEM32%\PresentationHost.exe',
     '%SYSTEM32%\RecoveryDrive.exe', '%SYSTEM32%\systemreset.exe',
+    '%SYSTEM32%\SecurityHealthSystray.exe',   # only the shield in the tray; Windows Security keeps protecting the PC
     '%WINDIR%\Microsoft.NET\*', '%WINDIR%\hh.exe'
 )
 
