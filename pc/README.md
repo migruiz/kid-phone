@@ -5,13 +5,18 @@ Windows 11 Pro through Boot Camp; the family's own account is `piscos`). In his 
 open what the parents allow, and the parents switch apps on from **Kid Phone Parent**, for a while
 or with no time limit, the same way as the apps on his phone.
 
-- **Always allowed:** Calculator, Notepad, Paint, Paint 3D, Photos, Camera and Snipping Tool, and the parts
-  of Windows itself he needs. Everything else is blocked for his account only: other programs,
-  browsers, Store apps, the command prompt, PowerShell, Task Manager, Control Panel, the registry
-  editor, installers.
-- **Switched on by a parent:** the apps in `agent/apps.json` (for now only **Roblox**). In Kid Phone
-  Parent: *Alejandro's PC* → *Apps on Alejandro's PC* → switch Roblox on for 15 min, 30 min, 1 hour,
-  2 hours, or with no time limit. Within a second or two it opens on his PC.
+- **Every app on the PC is a switch in the parents' app.** The agent finds every app installed for
+  him — the Store apps automatically, plus the desktop programs listed in `agent/apps.json` (Roblox,
+  Chrome, Edge) — and sends them to the hub. In Kid Phone Parent: *Alejandro's PC* → *Apps on
+  Alejandro's PC* → switch any of them on for 15 min, 30 min, 1 hour, 2 hours, or with no time limit.
+  Within a second or two it opens on his PC. Nothing he can open changes the parts of Windows itself
+  he needs.
+- **The everyday tools start on:** Calculator, Notepad, Paint, Paint 3D, Photos, Camera and Snipping
+  Tool are switched on to begin with, so they're always there until a parent turns one off.
+- **Never offered, always blocked** (`blockPackaged`/`blockDesktop` in `apps.json`): the apps that
+  would let him leave the locked setup or install anything — Windows Terminal, PowerShell, the
+  command prompt, the Microsoft Store, Quick Assist, Dev Home, Power Automate, Git and Node.js — plus
+  Task Manager, Control Panel, the registry editor and installers.
 - **His screen:** a full-screen home screen like his phone's (`launcher/`), with big buttons for
   what he can open and the minutes left on a timed app. He gets **"10 minutes left"** and **"5
   minutes left"**, then a **30-second countdown** and "Time's up!", floating over the game. Then the
@@ -87,11 +92,14 @@ copies the files, sets up the tasks, starts the agent and shows its first log li
 the switches, the mode and the log are kept. `-Hub http://...` points it at another hub (for
 testing).
 
-Adding an app a parent can switch on: add it to `apps.json` with an `id` (lower case, e.g.
-`minecraft`), its `label`, its `signer` as AppLocker shows it (`Get-AppLockerFileInformation -Path
-<exe>`), where its program is (`launch`, as Alejandro: `%LOCALAPPDATA%`, a `*` folder means the
-newest one), and its `processes` (names without `.exe`, closed when its time is up). Then run the
-installer. It appears in Kid Phone Parent once the PC has it installed.
+Store apps are found automatically. To add a **desktop program** a parent can switch on, add it to
+the `desktop` list in `apps.json`: an `id` (lower case, e.g. `minecraft`), a `label`, where its
+program is (`launch`, as Alejandro: `%LOCALAPPDATA%`, a `*` folder means the newest one), and its
+`processes` (names without `.exe`, closed when its time is up). The agent reads its publisher and
+product from the exe; add `"signerWide": true` for an app with several exes (like Roblox) so the
+whole signer is allowed. To stop offering something, add it to `blockPackaged` (a Store app's
+package name) or `blockDesktop` (a program's exe name). Then run the installer. Give a Store app a
+nicer name with the `labels` map.
 
 ## Getting out if something goes wrong
 
