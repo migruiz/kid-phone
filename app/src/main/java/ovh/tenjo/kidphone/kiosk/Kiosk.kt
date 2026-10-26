@@ -15,6 +15,7 @@ import android.os.UserManager
 import android.telecom.TelecomManager
 import android.util.Log
 import ovh.tenjo.kidphone.HomeActivity
+import ovh.tenjo.kidphone.MainActivity
 import ovh.tenjo.kidphone.call.CallManager
 import ovh.tenjo.kidphone.data.Store
 
@@ -72,7 +73,9 @@ object Kiosk {
         if (removed.isNotEmpty()) {
             Log.i(TAG, "Apps no longer allowed now: $removed")
             // Never over a call: the call screen must stay on top. Android closes the app anyway.
-            if (!CallManager.hasLiveCall) runCatching { context.startActivity(homeIntent()) }
+            // Not when Kid Phone is in front already: nothing to close, and a parent switching an
+            // app off in the parent menu would be sent back to the kid screen.
+            if (!CallManager.hasLiveCall && !MainActivity.inFront) runCatching { context.startActivity(homeIntent()) }
         }
     }
 

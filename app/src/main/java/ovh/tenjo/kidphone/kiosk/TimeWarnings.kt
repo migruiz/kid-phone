@@ -36,7 +36,7 @@ import ovh.tenjo.kidphone.hub.Hub
 /**
  * Tells the child how long is left of an app the parents switched on for a while: "10 minutes
  * left" and "5 minutes left" for a few seconds each, then for the last 30 seconds a countdown
- * (30, 29, 28…) and "Time's up!". Then the app closes (see [Hub.allowed]).
+ * (30, 29, 28…) and "Time's up!". Then the app closes (see [Hub.openNow]).
  *
  * They float at the top of whatever is on screen, the app itself included, without getting in its
  * way: taps go through to the app underneath. That needs "display over other apps", which being

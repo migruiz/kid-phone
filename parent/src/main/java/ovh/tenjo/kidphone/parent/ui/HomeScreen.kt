@@ -107,7 +107,8 @@ fun HomeScreen() {
         ParentPage {
             ScreenHeader(
                 "Apps", onBack = { showApps = false },
-                subtitle = "Apps switched on here appear when $childName taps Apps. They only open on the home Wi-Fi. " +
+                subtitle = "Apps switched on here appear when $childName taps Apps. They only open on the home Wi-Fi; " +
+                    "while $childName is out, a parent can give an app time with the PIN on $childName's phone. " +
                     "Switching one on asks for how long; tap it later to change the time. With a time, " +
                     "$childName sees \"10 minutes left\", \"5 minutes left\" and a countdown, then it closes.",
             )

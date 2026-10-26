@@ -4,7 +4,7 @@ An Android app that turns a phone into a child's phone.
 
 - **Two big buttons on the main screen: Contacts and Apps.** Calling is one step in, so a stray
   tap on the main screen never rings anyone. Apps shows only once the hub is set up, and is dimmed
-  away from the home Wi-Fi.
+  away from the home Wi-Fi (unless a parent gave an app time there with the PIN).
 - **Up to four people to call** (behind Contacts). Each has a big row with their picture (an emoji
   such as 👩, or the first letter of their name), their name, a green call button, and their phone
   number in large digits so the child learns it. Tapping the row rings that person. The back button
@@ -46,11 +46,12 @@ An Android app that turns a phone into a child's phone.
   hub; each parent switches apps on or off in Kid Phone Parent, which flags apps that can message
   or call people, open any website, or show any YouTube video. The **Apps** button on the main
   screen shows only the switched-on apps; the Home button always comes back to the main screen. Apps only
-  open on the home Wi-Fi: about a minute after the phone leaves it, an open app closes. An app
+  open on the home Wi-Fi: about a minute after the phone leaves it, an open app closes (unless a
+  parent gives it time with the PIN while out, see below). An app
   switched off while open closes within seconds. Settings, the Play Store and the phone's own Phone
   app are never offered. The same list with switches is also on the child's phone itself, behind
-  the PIN (padlock → *Apps he can open*); it changes the same switches through the hub, so it needs
-  the home Wi-Fi.
+  the PIN (padlock → *Apps he can open*); at home it changes the same switches through the hub
+  (away from home, see below).
   - **For a while.** Switching an app on asks for how long: **15 min, 30 min, 1 hour or 2 hours**
     from now, or no time limit. The list then shows the minutes left and when it ends; tapping the
     app changes the time from now, takes it away, or switches it off. Switching it off with the
@@ -61,6 +62,14 @@ An Android app that turns a phone into a child's phone.
     app closes and is switched off for everyone. The time is the clock's, used or not. The phone
     closes the app on time by itself, also away from the hub. No warnings during a call or with the
     screen off; a reminder missed by more than a minute is skipped.
+  - **Away from home, with the PIN.** Out and about, a parent can still give an app time on his
+    phone: padlock → PIN → *Apps he can open*, switch the app on and choose 15 min to 2 hours (away
+    from home there is no "no time limit"). It opens wherever he is, with the same warnings, and
+    closes when the time is up. The phone keeps that time itself, as it can't reach the hub; apps
+    switched on at home stay closed until he is back. Once he is back on the home Wi-Fi the phone
+    tells the hub the minutes left, so Kid Phone Parent shows it, and from then on a change in Kid
+    Phone Parent counts for it too. Switching it off on his phone while out switches it off at home
+    too, but leaves an app that is on at home with no time limit as it was.
   - Floating over other apps needs Android's *Display over other apps*, which being the phone app
     gives Kid Phone on Android 14. Where it doesn't, the parent menu says *Time warnings are small*
     → **Allow** → find Kid Phone in the list and allow it. Until then the warnings are short
@@ -93,8 +102,9 @@ An Android app that turns a phone into a child's phone.
     of the parent menu).
   - **Everything stays in step**: answers, changes and the apps switches always go through the hub,
     whichever phone they are made on, so every phone shows the same. On his phone that needs the
-    home Wi-Fi; a change made from a parent's phone while he is out reaches his phone when it is
-    back on the home Wi-Fi.
+    home Wi-Fi (apart from app time given there while out, which the hub hears of when he is back);
+    a change made from a parent's phone while he is out reaches his phone when it is back on the
+    home Wi-Fi.
 - **Calls going out only to the call buttons.** In kid mode any outgoing call that isn't to a call
   button (an "ask first" one only during a call time a parent gave) or an emergency number is hung
   up at once, whichever app started it.

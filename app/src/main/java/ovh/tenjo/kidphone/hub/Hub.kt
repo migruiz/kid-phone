@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,7 +52,8 @@ data class KidRequest(val id: String, val number: String, val status: String, va
 /**
  * The link to the home hub on the Raspberry Pi. The hub is only reachable on the home network, so
  * reaching it is how the phone knows it is at home. Parents' phones talk to the same hub from
- * anywhere; see hub/API.md.
+ * anywhere; see hub/API.md. Apps switched on at the hub only open at home; away from home a parent
+ * gives time with the PIN on this phone instead (see AwayTime.kt).
  *
  * While the screen is on, this keeps one request open to the hub, which answers as soon as the
  * parents change something (or after 25 seconds), and sends the list of apps whenever it changes.
@@ -72,6 +73,7 @@ object Hub {
     private const val KEY_ICONS_SENT = "iconsSent"
     private const val KEY_WINDOWS = "callWindows"
     private const val KEY_APP_ENDS = "appEnds"
+    private const val KEY_AWAY = "awayTime"
 
     /** Two end times closer than this are the same one, heard again a little later. */
     private const val SAME_END_MS = 5_000L
@@ -86,31 +88,38 @@ object Hub {
     val status: StateFlow<HomeStatus> = _status
 
     /**
-     * The apps switched on (installed or not), as last heard from the hub, and when the time is
-     * up for those switched on for a while (package → wall clock on this phone). Kept together so
-     * both always change at once.
+     * The apps switched on (installed or not), as last heard from the hub, and their times. Kept
+     * together so both always change at once.
      */
-    private data class Switches(val on: Set<String>, val ends: Map<String, Long>)
     private val switches = MutableStateFlow(Switches(emptySet(), emptyMap()))
+
+    /** Time a parent gave with the PIN on this phone away from home (see AwayTime.kt). */
+    private val away = MutableStateFlow(Away())
 
     /** Goes up when the screen comes on, so time that passed in deep sleep is caught up at once. */
     private val wokeUp = MutableStateFlow(0)
     val screenOns: StateFlow<Int> = wokeUp
 
     /**
-     * The apps he may open now: switched on, and with time left. An app's time running out takes
-     * it off at once, on this phone's own clock, even away from the hub.
+     * The apps he may open now: at home those switched on with time left, and anywhere those given
+     * time with the PIN away from home. An app's time running out takes it off at once, on this
+     * phone's own clock, even away from the hub.
      */
-    private val _allowed = MutableStateFlow<Set<String>>(emptySet())
-    val allowed: StateFlow<Set<String>> = _allowed
+    private val _openNow = MutableStateFlow<Set<String>>(emptySet())
+    val openNow: StateFlow<Set<String>> = _openNow
 
     /** Of the apps he may open now, those with a time: package → when it is up (wall clock). */
     private val _appEnds = MutableStateFlow<Map<String, Long>>(emptyMap())
     val appEnds: StateFlow<Map<String, Long>> = _appEnds
 
+    /** Time given with the PIN away from home that is still running: package → when it is up. */
+    private val _awayTime = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val awayTime: StateFlow<Map<String, Long>> = _awayTime
+
     /**
-     * True while allowed apps may open: on the home Wi-Fi, or only just left it. Off for
-     * [AWAY_GRACE_MS] away from home, then any open app closes.
+     * True while the apps switched on at the hub may open: on the home Wi-Fi, or only just left
+     * it. Off after [AWAY_GRACE_MS] away from home, and those apps close. Time given with the PIN
+     * away from home doesn't depend on it.
      */
     private val _appsAvailable = MutableStateFlow(false)
     val appsAvailable: StateFlow<Boolean> = _appsAvailable
@@ -169,6 +178,7 @@ object Hub {
     /** Stops using the hub. */
     fun forget() {
         prefs.edit().remove(KEY_TOKEN).remove(KEY_APPS_SENT).remove(KEY_ICONS_SENT).apply()
+        updateAway { Away() }
         _status.value = HomeStatus.NotSetUp
         wake.trySend(Unit)
     }
@@ -225,6 +235,13 @@ object Hub {
         } catch (e: java.io.IOException) {
             throw IllegalStateException("Couldn't reach the hub. Changing apps needs the home Wi-Fi.")
         }
+        // This change is the latest word on the app: nothing left over from away still to send.
+        updateAway { a ->
+            a.copy(
+                times = a.times[packageName]?.let { a.times + (packageName to it.copy(sent = true)) } ?: a.times,
+                off = a.off - packageName,
+            )
+        }
         val s = switches.value
         setSwitches(
             on = if (allowed) s.on + packageName else s.on - packageName,
@@ -237,14 +254,82 @@ object Hub {
         wake.trySend(Unit)
     }
 
+    /**
+     * A parent away from home, with the PIN, lets [packageName] open anywhere for [minutes] from
+     * now (again for one already on: the time starts over). Kept on this phone; the hub hears of it
+     * when the phone is back on the home Wi-Fi.
+     */
+    fun giveAwayTime(packageName: String, minutes: Int) {
+        updateAway { it.give(packageName, System.currentTimeMillis() + minutes * 60_000L) }
+    }
+
+    /** Takes back the time given away from home; the app closes at once. */
+    fun endAwayTime(packageName: String) {
+        updateAway { it.end(packageName, switches.value) }
+    }
+
     private fun setSwitches(on: Set<String>, ends: Map<String, Long>) {
         val fresh = Switches(on, ends.filterKeys { it in on })
+        // Away-from-home time the hub has: the hub decides now.
+        updateAway { it.followHub(fresh) }
         if (fresh == switches.value) return
         switches.value = fresh
         prefs.edit()
             .putStringSet(KEY_ALLOWED, fresh.on)
             .putString(KEY_APP_ENDS, JSONObject(fresh.ends as Map<*, *>).toString())
             .apply()
+    }
+
+    private fun updateAway(change: (Away) -> Away) {
+        val before = away.getAndUpdate(change)
+        val now = away.value
+        if (now != before) prefs.edit().putString(KEY_AWAY, now.toJson().toString()).apply()
+    }
+
+    /**
+     * Back on the home Wi-Fi: tells the hub about what parents did with the PIN while away, so Kid
+     * Phone Parent shows the same. An app switched on there gets the minutes it has left. Throws if
+     * the hub can't be reached; what wasn't sent yet goes next time.
+     */
+    private fun sendAwayTime() {
+        for (pkg in away.value.off) {
+            try {
+                Http.put(url("/kid/apps/$pkg"), JSONObject().put("allowed", false), token, timeoutMs = 8_000)
+                val s = switches.value
+                setSwitches(s.on - pkg, s.ends - pkg)
+            } catch (e: HttpError) {
+                Log.w(TAG, "The hub didn't switch off $pkg: ${e.message}")
+            }
+            updateAway { it.copy(off = it.off - pkg) }
+        }
+        for ((pkg, time) in away.value.times) {
+            if (time.sent) continue
+            val now = System.currentTimeMillis()
+            val left = time.endsAt - now
+            if (left < 60_000) continue // runs out by itself before it matters
+            val hub = switches.value
+            if (pkg in hub.on && pkg !in hub.ends) {
+                // On at home with no time limit already: nothing to change there.
+                updateAway { a -> a.times[pkg]?.let { a.copy(times = a.times + (pkg to it.copy(sent = true))) } ?: a }
+                continue
+            }
+            // The hub takes whole minutes: the nearest, so the end moves by 30 seconds at most.
+            val minutes = ((left + 30_000) / 60_000).toInt()
+            try {
+                Http.put(url("/kid/apps/$pkg"), JSONObject().put("allowed", true).put("minutes", minutes), token, timeoutMs = 8_000)
+            } catch (e: HttpError) {
+                Log.w(TAG, "The hub didn't take the time for $pkg: ${e.message}")
+                continue // tried again next time; meanwhile it still runs out on this phone
+            }
+            val endsAt = now + minutes * 60_000L
+            updateAway { a ->
+                // Only if a parent didn't change it here in the meantime.
+                if (a.times[pkg] == time) a.copy(times = a.times + (pkg to AwayTime(endsAt, sent = true))) else a
+            }
+            val s = switches.value
+            setSwitches(s.on + pkg, s.ends + (pkg to endsAt))
+            Log.i(TAG, "Told the hub about $minutes min of $pkg given away from home")
+        }
     }
 
     /** Tells the hub the battery level, so it can alert the parents when it runs low (see BatteryReport). */
@@ -345,6 +430,7 @@ object Hub {
             val o = JSONObject(prefs.getString(KEY_WINDOWS, null) ?: "{}")
             o.keys().asSequence().associateWith { o.getLong(it) }.filterValues { it > System.currentTimeMillis() }
         }.getOrDefault(emptyMap())
+        away.value = runCatching { awayFromJson(JSONObject(prefs.getString(KEY_AWAY, null) ?: "{}")) }.getOrDefault(Away())
         _status.value = if (isSetUp) HomeStatus.Checking else HomeStatus.NotSetUp
         app.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -359,16 +445,23 @@ object Hub {
         // The apps he may open now: an app goes the moment its time is up. Timers don't run in
         // deep sleep, so this looks again whenever the screen comes on.
         scope.launch {
-            combine(switches, wokeUp) { s, _ -> s }.collectLatest { s ->
-                while (true) {
-                    val now = System.currentTimeMillis()
-                    val open = s.on.filterTo(mutableSetOf()) { (s.ends[it] ?: Long.MAX_VALUE) > now }
-                    _appEnds.value = s.ends.filterKeys { it in open }
-                    _allowed.value = open
-                    val next = _appEnds.value.values.minOrNull() ?: break
-                    delay(next - now)
+            combine(switches, away, _appsAvailable, wokeUp) { s, a, home, _ -> Triple(s, a, home) }
+                .collectLatest { (s, a, home) ->
+                    while (true) {
+                        val now = System.currentTimeMillis()
+                        val apps = appsNow(s, a, home, now)
+                        _appEnds.value = apps.ends
+                        _awayTime.value = apps.away
+                        _openNow.value = apps.open
+                        // Time given away from home that has run out is gone for good.
+                        if (a.withoutEnded(now) != a) {
+                            updateAway { it.withoutEnded(now) }
+                            break // this starts over with the tidied list
+                        }
+                        val next = apps.nextChange ?: break
+                        delay(next - now)
+                    }
                 }
-            }
         }
         app.getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(
             object : ConnectivityManager.NetworkCallback() {
@@ -390,9 +483,7 @@ object Hub {
         }
         // Only the apps that may open now can run in kid mode.
         scope.launch {
-            combine(_allowed, _appsAvailable) { allowed, available -> if (available) allowed else emptySet() }
-                .distinctUntilChanged()
-                .collect { Kiosk.setAllowedApps(app, it) }
+            _openNow.collect { Kiosk.setAllowedApps(app, it) }
         }
 
         val power = app.getSystemService(PowerManager::class.java)
@@ -411,6 +502,7 @@ object Hub {
                     failures = 0
                     if (_status.value != HomeStatus.AtHome) BatteryReport.backHome(app)
                     _status.value = HomeStatus.AtHome
+                    runCatching { sendAwayTime() }.onFailure { Log.w(TAG, "Couldn't send the time given away from home: ${it.message}") }
                     // The long-poll paces the loop; only a quick answer needs a short pause.
                     if (SystemClock.elapsedRealtime() - started < 1_000) delay(1_000)
                 } else {
@@ -480,4 +572,20 @@ object Hub {
 
     private fun JSONArray?.strings(): List<String> =
         if (this == null) emptyList() else (0 until length()).map { getString(it) }
+
+    private fun Away.toJson(): JSONObject {
+        val list = JSONObject()
+        times.forEach { (pkg, time) -> list.put(pkg, JSONObject().put("endsAt", time.endsAt).put("sent", time.sent)) }
+        return JSONObject().put("times", list).put("off", JSONArray(off.toList()))
+    }
+
+    private fun awayFromJson(o: JSONObject): Away {
+        val list = o.optJSONObject("times") ?: JSONObject()
+        return Away(
+            times = list.keys().asSequence().associateWith { pkg ->
+                list.getJSONObject(pkg).let { AwayTime(it.getLong("endsAt"), it.optBoolean("sent")) }
+            },
+            off = o.optJSONArray("off").strings().toSet(),
+        )
+    }
 }

@@ -169,9 +169,17 @@ private val TimedGreen = Color(0xFF0B5D33)
  * How long an app stays on: [AppTimeChoices] from now, no time limit, or off. [onChoose] gets
  * (true, minutes) for a time, (true, null) for no time limit and (false, null) for off. Both
  * apps show it when an app is switched on, and when an app's row is tapped to change its time.
+ * Without [allowNoLimit] it always needs a time (the child's phone away from home).
  */
 @Composable
-fun AppTimeDialog(label: String, allowed: Boolean, endsAt: Long?, onChoose: (Boolean, Int?) -> Unit, onDismiss: () -> Unit) {
+fun AppTimeDialog(
+    label: String,
+    allowed: Boolean,
+    endsAt: Long?,
+    allowNoLimit: Boolean = true,
+    onChoose: (Boolean, Int?) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     val now = rememberClock()
     val intro = when {
@@ -198,7 +206,7 @@ fun AppTimeDialog(label: String, allowed: Boolean, endsAt: Long?, onChoose: (Boo
                     }
                     Spacer(Modifier.height(8.dp))
                 }
-                if (!(allowed && endsAt == null)) {
+                if (allowNoLimit && !(allowed && endsAt == null)) {
                     ChoiceButton("No time limit", Brand, Modifier.fillMaxWidth()) { onChoose(true, null) }
                     Spacer(Modifier.height(8.dp))
                 }
